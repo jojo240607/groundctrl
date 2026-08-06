@@ -1,0 +1,15 @@
+[package]
+name = "groundctrl-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+groundctrl-core = { path = "../core" }
+tokio = { workspace = true }
+eframe = "0.27"
+egui = "0.27"
+serde = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

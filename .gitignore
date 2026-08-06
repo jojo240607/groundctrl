@@ -1,0 +1,13 @@
+# Rust build output
+/target
+
+# Temporary probe / scratch projects
+/tmp_probe
+
+# Ad-hoc debug scripts and logs
+_probe*.py
+*.txt
+tmp_*.json
+chk*.txt
+out*.txt
+err*.txt
