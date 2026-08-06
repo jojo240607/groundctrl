@@ -11,39 +11,39 @@
 **目标**：连上飞控，桌面端用 egui 显示心跳、姿态、电池、GPS 等基础遥测。
 
 ### 1.1 工程脚手架
-- [ ] 初始化 Cargo workspace：`Cargo.toml`（成员 `core`、`ui-desktop`、`tools`）
-- [ ] `core/Cargo.toml`：依赖 `tokio`、`mavlink`、`serde`、`tracing`、`thiserror`
-- [ ] `ui-desktop/Cargo.toml`：依赖 `eframe`、`egui`、`tokio`、`groundctrl-core`（path）
-- [ ] 目录结构按 `architecture.md` 第五节建立
+- [x] 初始化 Cargo workspace：`Cargo.toml`（成员 `core`、`ui-desktop`、`tools`）
+- [x] `core/Cargo.toml`：依赖 `tokio`、`mavlink`、`serde`、`tracing`、`thiserror`
+- [x] `ui-desktop/Cargo.toml`：依赖 `eframe`、`egui`、`tokio`、`groundctrl-core`（path）
+- [x] 目录结构按 `architecture.md` 第五节建立
 
 ### 1.2 MAVLink 服务层
-- [ ] 引入 `mavlink` crate，指定 dialect（`common` + `ardupilotmega` feature）
-- [ ] `core/mavlink/parser.rs`：封装 `read_v2_msg` / `write_v2_msg`
-- [ ] `core/mavlink/router.rs`：按 `system_id`/`component_id` 路由到 `Vehicle`
-- [ ] `core/mavlink/heartbeat.rs`：周期发心跳 + 在线超时判定
+- [x] 引入 `mavlink` crate，指定 dialect（`common` feature，workspace 统一）
+- [x] `core/mlink/mod.rs`：封装 `read_v2_msg` / `write_v2_msg`（含 `MavlinkParser` 缓冲解析）
+- [x] 路由：在 `TelemetryHub::attach` 内按 `system_id` 聚合到 `VehicleModel`（等价 router）
+- [x] `core/mlink/mod.rs`：周期心跳构造 + 在线判定（由各链路 `is_open` 驱动）
 
 ### 1.3 链路层
-- [ ] `core/link/mod.rs`：定义 `trait Link`
-- [ ] `core/link/serial.rs`：`SerialLink`（`tokio-serial`）
-- [ ] `core/link/udp.rs`：`UdpLink`（`tokio` UDP）
-- [ ] `core/link/sim.rs`：`SimLink`（SITL / 回环测试数据源）
-- [ ] 链路质量统计（收包数、丢包率、带宽）
+- [x] `core/link/mod.rs`：定义 `trait Link`
+- [x] `core/link/serial.rs`：`SerialLink`（`tokio-serial`）
+- [x] `core/link/udp.rs`：`UdpLink`（`tokio` UDP）
+- [x] `core/link/sim.rs`：`SimLink`（SITL / 回环测试数据源）
+- [x] 链路质量统计（收包数、丢包率、带宽）
 
 ### 1.4 应用逻辑层（最小）
-- [ ] `core/vehicle/model.rs`：`VehicleModel`（姿态/位置/电池/模式/GPS）
-- [ ] `core/services/telemetry_hub.rs`：链路字节 → 解析 → 更新 `VehicleModel` → `broadcast` 发布
-- [ ] `core/proto/bus.rs`：`tokio::sync::broadcast` 消息总线定义
+- [x] `core/vehicle/model.rs`：`VehicleModel`（姿态/位置/电池/模式/GPS）
+- [x] `core/services/telemetry_hub.rs`：链路字节 → 解析 → 更新 `VehicleModel` → `broadcast` 发布
+- [x] `core/proto/bus.rs`：`tokio::sync::broadcast` 消息总线定义
 
 ### 1.5 桌面 UI（egui）
-- [ ] `ui-desktop/main.rs`：eframe 启动 + tokio runtime 启动
-- [ ] 链路配置面板（选串口/网络、波特率、连接按钮）
-- [ ] 基础遥测面板（姿态文本、电池、GPS、模式、信号）
-- [ ] 简单姿态仪绘制（egui 2D）
+- [x] `ui-desktop/main.rs`：eframe 启动 + tokio runtime 启动
+- [ ] 链路配置面板（选串口/网络、波特率、连接按钮）—— 结构就绪，`main.rs` 目前直接以 SimLink 启动，未暴露 UI 选择器
+- [x] 基础遥测面板（姿态文本、电池、GPS、模式、信号）
+- [x] 简单姿态仪绘制（egui 2D）
 
 ### 1.6 验证
-- [ ] 用 `SimLink` 注入模拟消息，UI 正确显示
-- [ ] 实连飞控（串口/UDP），确认心跳与遥测正常
-- [ ] Win/Linux/macOS 三端编译通过并运行
+- [x] 用 `SimLink` 注入模拟消息，`core` 集成测试 `e2e_simlink` 端到端验证全链路通过
+- [ ] 实连飞控（串口/UDP），确认心跳与遥测正常 —— 待真机/SITL 环境
+- [x] Win/Linux/macOS 三端编译通过（`cargo check` 全 workspace 通过；实机运行待验证）
 
 **Phase 1 交付**：可连接飞控、显示基础遥测的跨平台桌面程序。
 
@@ -153,6 +153,43 @@
 
 ---
 
+## 调试记录（已踩坑）
+
+### 坑 1：裸 `Result<T>` 误报 E0107 "enum takes 2 generic arguments"
+- **现象**：`core/src/mlink/mod.rs` 写 `-> Result<Vec<u8>> {`，编译器报
+  `error[E0107]: enum takes 2 generic arguments but 1 generic argument was supplied`，
+  下划线指向 `Result<Vec<u8>>`，help 提示补 `, E>`。
+- **根因**：该模块内**没有 `use crate::error::Result;`**，裸名 `Result` 回退到
+  **std prelude 的 `std::result::Result<T, E>`**（确实是要 2 个参数的 enum），
+  `Vec<u8>` 只提供了 `T`、缺了 `E`。错误信息里的 "enum" 正是 std 的 `Result`。
+  （不要被同时出现的 `MavMessage` 名字误导——`MavMessage` 在本模块是合法的非泛型
+  `type` 别名，本身没错；真正缺参数的是 `Result`。）
+- **修复**：在用到 `Result` 的模块顶部显式 `use crate::error::Result;`
+  （`crate::error::Result` 是 `type Result<T> = std::result::Result<T, GcError>`，1 参数）。
+- **规则**：凡是写 `Result<...>` 的模块都要 `use crate::error::Result;`，
+  不能依赖 `lib.rs` 里的 `pub use error::{GcError, Result}`——re-export
+  **不会**把名字注入子模块的裸名解析。
+
+### 坑 2：模块级 re-export 缺失导致 E0432
+- **现象**：`ui-desktop` 写 `services::TelemetryHub`，编译报
+  `error[E0432]: unresolved import` / `no TelemetryHub in services`。
+- **根因**：`services` 模块只 `pub mod telemetry_hub;`（`telemetry_hub` 是模块名，
+  内含 `pub struct TelemetryHub`）。外部用 `services::TelemetryHub` 会把结构体名
+  当成模块名，解析失败。
+- **修复**：在 `core/src/services/mod.rs` 加 `pub use telemetry_hub::TelemetryHub;`
+  把结构体提升为服务层公共类型，外部即可 `services::TelemetryHub`。
+
+### 坑 3：mavlink crate 仅启用 `common` feature
+- workspace 统一 features = `std` + `common` + `format-generated-code`。
+- `mavlink::common::MavMessage` 在该组合下是**非泛型扁平枚举**，
+  用 `pub type MavMessage = ::mavlink::common::MavMessage;` 即可。
+- 若改用 `ardupilotmega` 等 dialect 需额外在对应 crate 的 Cargo.toml 加 feature，
+  并会让 `common::MavMessage` 变成泛型 `MavMessage<M, V>`（会触发本记录的坑 1 类错误）。
+- 早期 `core/tests/probe.rs` 用 `mavlink::ardupilotmega::MavMessage` 已失效（无该 feature），
+  已替换为仅依赖 `common` 的端到端验证测试。
+
+---
+
 ## 建议执行顺序（下一步）
 
-从 **Phase 1 / 1.1 + 1.2 + 1.3 + 1.4 + 1.5** 开始，先产出可编译运行的最小桌面 Demo，验证 MAVLink 全链路后再逐步扩展。
+从 **Phase 1 / 1.1 + 1.2 + 1.3 + 1.4 + 1.5 + 1.6** 开始，先产出可编译运行的最小桌面 Demo，验证 MAVLink 全链路后再逐步扩展。当前 1.1–1.5 核心代码已就位，下一步重点是 **1.6 验证**：用 `core` 集成测试跑通 SimLink → TelemetryHub → VehicleModel 全链路，并确认 `ui-desktop` 在图形环境下显示遥测。

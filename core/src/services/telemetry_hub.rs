@@ -38,6 +38,11 @@ impl TelemetryHub {
         self.telem_tx.subscribe()
     }
 
+    /// 当前机队中所有飞机的快照（按 system_id 聚合）
+    pub async fn fleet(&self) -> Vec<VehicleModel> {
+        self.vehicles.lock().await.values().cloned().collect()
+    }
+
     /// 接入一条链路，启动解析任务。返回任务句柄。
     pub fn attach(&self, link: LinkHandle) -> tokio::task::JoinHandle<()> {
         let bus = self.bus.clone();

@@ -23,11 +23,9 @@ impl SimLink {
         tokio::spawn(async move {
             // 用 mavlink 编码合成消息
             let enc = |msg: mlink::MavMessage| -> Vec<u8> {
-                let mut buf = Vec::new();
-                if mlink::encode_v2(&mlink::default_header(), &msg).is_ok() {
-                    buf
-                } else {
-                    Vec::new()
+                match mlink::encode_v2(&mlink::default_header(), &msg) {
+                    Ok(b) => b,
+                    Err(_) => Vec::new(),
                 }
             };
             let mut tick = tokio::time::interval(std::time::Duration::from_millis(100));
@@ -89,8 +87,8 @@ impl SimLink {
                 let gps = mlink::MavMessage::GLOBAL_POSITION_INT(
                     ::mavlink::common::GLOBAL_POSITION_INT_DATA {
                         time_boot_ms: (t * 1000.0) as u32,
-                        lat: 311000000 + (t * 10.0) as i32,
-                        lon: 121400000 + (t * 10.0) as i32,
+                        lat: 311_000_000 + ((t * 10.0) as i32 % 100_000),
+                        lon: 121_400_000 + ((t * 10.0) as i32 % 100_000),
                         alt: 10000,
                         relative_alt: 1000,
                         vx: 0,
