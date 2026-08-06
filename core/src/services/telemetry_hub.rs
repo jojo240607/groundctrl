@@ -5,6 +5,7 @@
 use std::sync::Arc;
 
 use tokio::sync::Mutex;
+use tokio::task::JoinHandle;
 
 use crate::link::LinkHandle;
 use crate::mlink;
@@ -17,6 +18,10 @@ pub struct TelemetryHub {
     bus: Bus,
     vehicles: Arc<Mutex<std::collections::HashMap<u8, VehicleModel>>>,
     telem_tx: tokio::sync::broadcast::Sender<VehicleModel>,
+    /// 当前活动链路的消费任务（用于断开时取消）
+    active: Mutex<Option<JoinHandle<()>>>,
+    /// 当前活动链路句柄（用于显示名称 / 重连判断）
+    current: Mutex<Option<LinkHandle>>,
 }
 
 impl TelemetryHub {
@@ -27,6 +32,8 @@ impl TelemetryHub {
             bus,
             vehicles: Arc::new(Mutex::new(std::collections::HashMap::new())),
             telem_tx,
+            active: Mutex::new(None),
+            current: Mutex::new(None),
         }
     }
 
@@ -96,6 +103,45 @@ impl TelemetryHub {
             });
             tracing::info!("link {name} detached");
         })
+    }
+
+    /// 接入一条链路并设为「当前活动链路」，会先断开旧链路。
+    ///
+    /// 多次连接时只有一条活动链路；切换链路会自动取消上一条的解析任务。
+    pub async fn connect(&self, link: LinkHandle) {
+        self.disconnect().await;
+
+        let name = link.name();
+        let handle = self.attach(link.clone());
+        *self.active.lock().await = Some(handle);
+        *self.current.lock().await = Some(link);
+        self.bus.publish(BusEvent::LinkState {
+            link: name,
+            open: true,
+        });
+        tracing::info!("telemetry hub active link set");
+    }
+
+    /// 断开当前活动链路：取消解析任务并清空当前句柄。
+    pub async fn disconnect(&self) {
+        // 取消旧任务
+        if let Some(h) = self.active.lock().await.take() {
+            h.abort();
+        }
+        // 通知链路状态
+        if let Some(old) = self.current.lock().await.take() {
+            let name = old.name();
+            self.bus.publish(BusEvent::LinkState {
+                link: name,
+                open: false,
+            });
+        }
+        tracing::info!("telemetry hub disconnected");
+    }
+
+    /// 当前活动链路名称（无连接时返回 None）
+    pub async fn current_link_name(&self) -> Option<String> {
+        self.current.lock().await.as_ref().map(|l| l.name())
     }
 
     /// 发送原始 MAVLink 帧到指定链路

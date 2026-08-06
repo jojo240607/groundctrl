@@ -17,12 +17,13 @@ struct UiState {
     vehicle: VehicleModel,
     log: Vec<String>,
     link_status: String,
+    /// 当前活动链路名称（None = 未连接）
+    active_link: Option<String>,
     /// 连接配置
     serial_port: String,
     baud: u32,
     udp_bind: String,
     udp_target: String,
-    use_sim: bool,
 }
 
 struct GroundControlApp {
@@ -72,8 +73,15 @@ impl GroundControlApp {
                                 ev
                             {
                                 if let Ok(mut s) = state.lock() {
-                                    s.link_status =
-                                        format!("{}: {}", link, if open { "OPEN" } else { "CLOSED" });
+                                    if open {
+                                        s.active_link = Some(link);
+                                    } else if s.active_link.as_deref() == Some(link.as_str()) {
+                                        s.active_link = None;
+                                    }
+                                    s.link_status = match &s.active_link {
+                                        Some(n) => format!("{n}: OPEN"),
+                                        None => "无连接".to_string(),
+                                    };
                                 }
                             }
                         }
@@ -83,45 +91,62 @@ impl GroundControlApp {
             });
         }
 
+        // 默认以 SimLink 启动，打开即有遥测数据
+        {
+            let hub = hub.clone();
+            rt.spawn(async move {
+                hub.connect(link::share(link::sim::SimLink::new())).await;
+            });
+        }
+
         Self { state, hub, rt }
     }
 
+    /// 连接指定类型的链路（先断开旧链路，再设为当前活动链路）
     fn connect(&self, kind: ConnectKind) {
         let hub = self.hub.clone();
         let state = self.state.clone();
         self.rt.spawn(async move {
             let link: LinkHandle = match kind {
-                ConnectKind::Sim => {
-                    let l = link::sim::SimLink::new();
-                    link::share(l)
-                }
-                ConnectKind::Udp(bind, target) => {
-                    match link::udp::UdpLink::new(link::udp::UdpConfig {
+                ConnectKind::Sim => link::share(link::sim::SimLink::new()),
+                ConnectKind::Udp(bind, target) => match link::udp::UdpLink::new(
+                    link::udp::UdpConfig {
                         bind_addr: bind,
                         target_addr: target,
-                    })
-                    .await
-                    {
-                        Ok(l) => link::share(l),
-                        Err(e) => {
-                            if let Ok(mut s) = state.lock() {
-                                s.log.push(format!("UDP open failed: {e}"));
-                            }
-                            return;
+                    },
+                )
+                .await
+                {
+                    Ok(l) => link::share(l),
+                    Err(e) => {
+                        if let Ok(mut s) = state.lock() {
+                            s.log.push(format!("UDP open failed: {e}"));
                         }
+                        return;
                     }
-                }
+                },
                 ConnectKind::Serial(port, baud) => {
-                    let l = link::serial::SerialLink::new(link::serial::SerialConfig {
+                    link::share(link::serial::SerialLink::new(link::serial::SerialConfig {
                         port,
                         baud_rate: baud,
-                    });
-                    link::share(l)
+                    }))
                 }
             };
-            hub.attach(link);
+            hub.connect(link).await;
             if let Ok(mut s) = state.lock() {
-                s.log.push(format!("attached link"));
+                s.log.push("链路已连接".into());
+            }
+        });
+    }
+
+    /// 断开当前活动链路
+    fn disconnect(&self) {
+        let hub = self.hub.clone();
+        let state = self.state.clone();
+        self.rt.spawn(async move {
+            hub.disconnect().await;
+            if let Ok(mut s) = state.lock() {
+                s.log.push("链路已断开".into());
             }
         });
     }
@@ -144,23 +169,36 @@ impl eframe::App for GroundControlApp {
 
         egui::SidePanel::left("config").show(ctx, |ui| {
             ui.heading("连接");
-            ui.text_edit_singleline(&mut state.serial_port);
-            ui.add(egui::Slider::new(&mut state.baud, 9600..=921600).logarithmic(true));
-            if ui.button("连接串口").clicked() {
-                self.connect(ConnectKind::Serial(
-                    state.serial_port.clone(),
-                    state.baud,
-                ));
+            ui.label(format!("状态: {}", state.link_status));
+            if ui.button("断开当前链路").clicked() {
+                self.disconnect();
             }
             ui.separator();
-            ui.text_edit_singleline(&mut state.udp_bind);
-            ui.text_edit_singleline(&mut state.udp_target);
-            if ui.button("连接 UDP").clicked() {
-                self.connect(ConnectKind::Udp(
-                    state.udp_bind.clone(),
-                    state.udp_target.clone(),
-                ));
-            }
+
+            ui.collapsing("串口", |ui| {
+                ui.text_edit_singleline(&mut state.serial_port);
+                ui.add(egui::Slider::new(&mut state.baud, 9600..=921600).logarithmic(true));
+                if ui.button("连接串口").clicked() {
+                    self.connect(ConnectKind::Serial(
+                        state.serial_port.clone(),
+                        state.baud,
+                    ));
+                }
+            });
+
+            ui.collapsing("UDP", |ui| {
+                ui.label("bind:");
+                ui.text_edit_singleline(&mut state.udp_bind);
+                ui.label("target:");
+                ui.text_edit_singleline(&mut state.udp_target);
+                if ui.button("连接 UDP").clicked() {
+                    self.connect(ConnectKind::Udp(
+                        state.udp_bind.clone(),
+                        state.udp_target.clone(),
+                    ));
+                }
+            });
+
             ui.separator();
             if ui.button("模拟链路 (Sim)").clicked() {
                 self.connect(ConnectKind::Sim);
@@ -213,14 +251,14 @@ fn telemetry_panel(ui: &mut egui::Ui, v: &VehicleModel) {
     );
     let center = resp.rect.center();
     let r = size / 2.0 - 4.0;
-    painter.circle_stroke(center, r, egui::Stroke::new(1.0, egui::Color32::GRAY));
+    painter.circle_stroke(center, r, egui::Stroke::new(1.0_f32, egui::Color32::GRAY));
     // roll 旋转横线
     let roll = v.attitude.roll;
     let dx = (roll.cos() * r) as f32;
     let dy = (roll.sin() * r) as f32;
     painter.line_segment(
         [center - egui::Vec2::new(dx, dy), center + egui::Vec2::new(dx, dy)],
-        egui::Stroke::new(2.0, egui::Color32::GREEN),
+        egui::Stroke::new(2.0_f32, egui::Color32::GREEN),
     );
     let _ = p;
 

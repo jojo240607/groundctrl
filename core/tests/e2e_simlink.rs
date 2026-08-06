@@ -63,3 +63,29 @@ async fn simlink_feeds_vehicle_model() {
     }
     assert!(got, "总线应持续产出 Mavlink 事件");
 }
+
+#[tokio::test]
+async fn connect_replaces_active_link() {
+    use groundctrl_core::link::sim::SimLink;
+    use groundctrl_core::link::share;
+
+    let hub = TelemetryHub::new();
+
+    // 第一次连接 Sim
+    hub.connect(share(SimLink::new())).await;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert!(hub.current_link_name().await.is_some(), "应有活动链路");
+
+    // 第二次连接应替换（不抛错、仍有一条活动链路）
+    hub.connect(share(SimLink::new())).await;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert!(hub.current_link_name().await.is_some(), "替换后仍应有活动链路");
+    let fleet = hub.fleet().await;
+    assert!(!fleet.is_empty(), "替换链路后机队不应被清空");
+
+    // 断开
+    hub.disconnect().await;
+    assert!(hub.current_link_name().await.is_none(), "断开后无活动链路");
+    // 断开不应清除已聚合的遥测
+    assert!(!hub.fleet().await.is_empty(), "断开后已聚合数据应保留");
+}
