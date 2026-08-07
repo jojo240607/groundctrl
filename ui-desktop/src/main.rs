@@ -8,6 +8,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use groundctrl_core::link::{self, LinkHandle};
 use groundctrl_core::services::alarms::{Alarm, AlarmLevel};
+use groundctrl_core::services::log::LogManager;
 use groundctrl_core::services::TelemetryHub;
 use groundctrl_core::vehicle::params::ParamEntry;
 use groundctrl_core::vehicle::mission::Waypoint;
@@ -56,6 +57,11 @@ struct UiState {
     wp_lat: f64,
     wp_lon: f64,
     wp_alt: f32,
+    /// 地图缩放级别（越大越近）
+    map_zoom: f64,
+    /// 导出 / 导入反馈信息
+    export_msg: String,
+    import_msg: String,
 }
 
 struct GroundControlApp {
@@ -355,8 +361,8 @@ impl eframe::App for GroundControlApp {
                 TabKind::Telemetry => telemetry_panel(ui, &state.vehicle),
                 TabKind::Params => params_panel(ui, &mut state, self),
                 TabKind::Mission => mission_panel(ui, &mut state, self),
-                TabKind::Map => map_panel(ui, &state),
-                TabKind::Log => log_panel(ui, &state, &self.hub),
+                TabKind::Map => map_panel(ui, &mut state),
+                TabKind::Log => log_panel(ui, &mut state, self),
             }
         });
 
@@ -393,25 +399,114 @@ fn telemetry_panel(ui: &mut egui::Ui, v: &VehicleModel) {
         v.attitude.yaw.to_degrees()
     ));
 
-    // 简单姿态仪（人工地平线）
-    let p = ui.cursor();
-    let size = 120.0;
-    let (resp, painter) = ui.allocate_painter(
+    // 人工地平仪（artificial horizon）
+    let size = 160.0;
+    let (resp, mut painter) = ui.allocate_painter(
         egui::Vec2::new(size, size),
         egui::Sense::hover(),
     );
     let center = resp.rect.center();
     let r = size / 2.0 - 4.0;
-    painter.circle_stroke(center, r, egui::Stroke::new(1.0_f32, egui::Color32::GRAY));
-    // roll 旋转横线
-    let roll = v.attitude.roll;
-    let dx = (roll.cos() * r) as f32;
-    let dy = (roll.sin() * r) as f32;
+
+    // 用裁剪区把地平仪限制在圆形内
+    let mut pitch = v.attitude.pitch; // 弧度
+    let roll = v.attitude.roll; // 弧度
+    // 限制极端角度，避免几何发散
+    pitch = pitch.clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
+
+    // 俯仰在屏幕上偏移：每度约 2px
+    let pitch_px = (pitch.to_degrees() * 2.0) as f32;
+    // roll 旋转
+    let cs = roll.cos() as f32;
+    let sn = roll.sin() as f32;
+
+    // 地平线在旋转坐标系下的 y 偏移（未旋转前）
+    let horizon_y = pitch_px; // 正俯仰（抬头）=> 地平线下移
+    // 旋转后的方向向量：屏幕 x 轴在机体坐标系下
+    let rot = |x: f32, y: f32| -> egui::Pos2 {
+        egui::Pos2::new(center.x + (x * cs - y * sn), center.y + (x * sn + y * cs))
+    };
+
+    // 裁剪到圆
+    let clip_rect = egui::Rect::from_center_size(center, egui::Vec2::splat(size));
+    painter.set_clip_rect(clip_rect);
+
+    // 天空 / 地面填充（以地平线为界，整块涂色后旋转）
+    let far = r + 60.0;
+    // 天空多边形（地平线以上）
+    let sky = vec![
+        rot(-far, -far + horizon_y),
+        rot(far, -far + horizon_y),
+        rot(far, -far),
+        rot(-far, -far),
+    ];
+    painter.add(egui::Shape::convex_polygon(
+        sky,
+        egui::Color32::from_rgb(70, 130, 200),
+        egui::Stroke::NONE,
+    ));
+    // 地面多边形（地平线以下）
+    let ground = vec![
+        rot(-far, far + horizon_y),
+        rot(far, far + horizon_y),
+        rot(far, far),
+        rot(-far, far),
+    ];
+    painter.add(egui::Shape::convex_polygon(
+        ground,
+        egui::Color32::from_rgb(120, 90, 50),
+        egui::Stroke::NONE,
+    ));
+
+    // 地平线（白线）
+    let hl_a = rot(-r, horizon_y);
+    let hl_b = rot(r, horizon_y);
+    painter.line_segment([hl_a, hl_b], egui::Stroke::new(2.0_f32, egui::Color32::WHITE));
+
+    // 俯仰刻度（每 10° 一条，带标号）
+    for deg in [-30, -20, -10, 10, 20, 30] {
+        let y = horizon_y - (deg as f32) * 2.0; // 注意符号：抬头时该刻度在地平线上方（机体坐标 -y）
+        let len = if deg % 20 == 0 { 24.0 } else { 14.0 };
+        let a = rot(-len, y);
+        let b = rot(len, y);
+        painter.line_segment([a, b], egui::Stroke::new(1.0_f32, egui::Color32::WHITE));
+        if deg % 20 == 0 {
+            let tx = rot(len + 6.0, y);
+            painter.text(
+                tx,
+                egui::Align2::LEFT_CENTER,
+                format!("{deg}"),
+                egui::FontId::proportional(10.0),
+                egui::Color32::WHITE,
+            );
+        }
+    }
+
+    // 恢复裁剪（球体描边在裁剪外画）
+    painter.set_clip_rect(egui::Rect::EVERYTHING);
+
+    // 外圆 + 固定机体符号（不随姿态旋转）
+    painter.circle_stroke(center, r, egui::Stroke::new(1.5_f32, egui::Color32::GRAY));
+    // 机体参考符号：中心横杠 + 小翼
     painter.line_segment(
-        [center - egui::Vec2::new(dx, dy), center + egui::Vec2::new(dx, dy)],
-        egui::Stroke::new(2.0_f32, egui::Color32::GREEN),
+        [center - egui::Vec2::new(20.0, 0.0), center - egui::Vec2::new(6.0, 0.0)],
+        egui::Stroke::new(2.5_f32, egui::Color32::YELLOW),
     );
-    let _ = p;
+    painter.line_segment(
+        [center + egui::Vec2::new(6.0, 0.0), center + egui::Vec2::new(20.0, 0.0)],
+        egui::Stroke::new(2.5_f32, egui::Color32::YELLOW),
+    );
+    painter.line_segment(
+        [center, center - egui::Vec2::new(0.0, 8.0)],
+        egui::Stroke::new(2.5_f32, egui::Color32::YELLOW),
+    );
+
+    ui.label(format!(
+        "roll: {:.0}°  pitch: {:.0}°  yaw: {:.0}°",
+        roll.to_degrees(),
+        pitch.to_degrees(),
+        v.attitude.yaw.to_degrees()
+    ));
 
     ui.separator();
     ui.label("GPS");
@@ -476,16 +571,41 @@ fn params_panel(ui: &mut egui::Ui, state: &mut UiState, app: &GroundControlApp) 
         }
     });
     ui.separator();
+
+    // 选中参数写回：用 egui 临时存储记录选中项与编辑值
+    let selected: Option<String> = ui.data(|d| d.get_temp(egui::Id::new("param_selected")));
+    let mut edit_val: f32 = ui
+        .data(|d| d.get_temp(egui::Id::new("param_edit_val")))
+        .unwrap_or(0.0);
+
     egui::ScrollArea::vertical().show(ui, |ui| {
         for p in &state.params {
+            let is_sel = selected.as_deref() == Some(p.name.as_str());
             ui.horizontal(|ui| {
-                ui.label(&p.name);
+                if ui.selectable_label(is_sel, &p.name).clicked() {
+                    ui.data_mut(|d| d.insert_temp(egui::Id::new("param_selected"), p.name.clone()));
+                    ui.data_mut(|d| d.insert_temp(egui::Id::new("param_edit_val"), p.value));
+                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(format!("{:.4}", p.value));
                 });
             });
         }
     });
+
+    ui.separator();
+    if let Some(name) = &selected {
+        ui.horizontal(|ui| {
+            ui.label(format!("写入 [{name}]:"));
+            ui.add(egui::DragValue::new(&mut edit_val).speed(0.01));
+            ui.data_mut(|d| d.insert_temp(egui::Id::new("param_edit_val"), edit_val));
+            if ui.button("发送到飞控").clicked() {
+                app.set_param(name.clone(), edit_val);
+            }
+        });
+    } else {
+        ui.label("点击左侧参数名可选中并修改后写入飞控");
+    }
 }
 
 /// 航点面板：本地航点列表 + 新增 + 上传
@@ -533,16 +653,22 @@ fn mission_panel(ui: &mut egui::Ui, state: &mut UiState, app: &GroundControlApp)
     });
 }
 
-/// 地图 HUD：简化经纬度散点 + 航迹线（离线，无瓦片）
-fn map_panel(ui: &mut egui::Ui, state: &UiState) {
+/// 地图 HUD：简化经纬度散点 + 航迹线 + 航点叠加 + 指北针（离线，无瓦片）
+fn map_panel(ui: &mut egui::Ui, state: &mut UiState) {
     ui.heading("地图 (简化 HUD)");
-    ui.label("离线模式：以当前位置为中心绘制航迹（无地图瓦片）");
+    ui.label("离线模式：以当前位置为中心绘制航迹与航点（无地图瓦片）");
+    ui.horizontal(|ui| {
+        ui.label("缩放:");
+        ui.add(egui::Slider::new(&mut state.map_zoom, 2.0..=18.0).logarithmic(true));
+        ui.label(format!("z={:.1}", state.map_zoom));
+    });
 
     let (resp, painter) = ui.allocate_painter(
         ui.available_size(),
         egui::Sense::hover(),
     );
     let rect = resp.rect;
+
     if state.trail.is_empty() {
         painter.text(
             rect.center(),
@@ -554,15 +680,16 @@ fn map_panel(ui: &mut egui::Ui, state: &UiState) {
         return;
     }
 
-    // 计算经纬度的视觉范围（留边距）
-    let lats: Vec<f64> = state.trail.iter().map(|(la, _)| *la).collect();
-    let lons: Vec<f64> = state.trail.iter().map(|(_, lo)| *lo).collect();
-    let min_lat = lats.iter().cloned().fold(f64::INFINITY, f64::min);
-    let max_lat = lats.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    let min_lon = lons.iter().cloned().fold(f64::INFINITY, f64::min);
-    let max_lon = lons.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    let lat_span = (max_lat - min_lat).max(1e-6);
-    let lon_span = (max_lon - min_lon).max(1e-6);
+    // 以当前位置为视图中心；zoom 越大视野越窄
+    let cur = *state.trail.last().unwrap();
+    // 视野半宽（度）：zoom 18 => 约 0.002°，zoom 2 => 约 1.0°
+    let half_span = (1.0 / (state.map_zoom * state.map_zoom)) + 0.0008;
+    let min_lat = cur.0 - half_span;
+    let max_lat = cur.0 + half_span;
+    let min_lon = cur.1 - half_span;
+    let max_lon = cur.1 + half_span;
+    let lat_span = (max_lat - min_lat).max(1e-9);
+    let lon_span = (max_lon - min_lon).max(1e-9);
 
     let pad: f64 = 16.0;
     let w: f64 = (rect.width() - 2.0 * pad as f32) as f64;
@@ -583,19 +710,205 @@ fn map_panel(ui: &mut egui::Ui, state: &UiState) {
             egui::Stroke::new(1.5_f32, egui::Color32::LIGHT_BLUE),
         );
     }
-    // 当前点
-    if let Some(&cur) = pts.last() {
-        painter.circle_filled(cur, 4.0, egui::Color32::GREEN);
+
+    // 本地航点叠加（橙色方块）
+    for wp in &state.mission {
+        let p = to_xy(wp.lat, wp.lon);
+        painter.rect_filled(
+            egui::Rect::from_center_size(p, egui::Vec2::splat(8.0)),
+            1.0,
+            egui::Color32::GOLD,
+        );
     }
+
+    // 当前点
+    if let Some(&cur_p) = pts.last() {
+        painter.circle_filled(cur_p, 4.0, egui::Color32::GREEN);
+    }
+
+    // 指北针（左上角小指示器）
+    let n_size = 26.0;
+    let n_center = rect.min + egui::Vec2::new(n_size + 10.0, n_size + 10.0);
+    painter.circle_stroke(n_center, n_size, egui::Stroke::new(1.0_f32, egui::Color32::GRAY));
+    painter.line_segment(
+        [n_center, n_center - egui::Vec2::new(0.0, n_size)],
+        egui::Stroke::new(2.0_f32, egui::Color32::RED),
+    );
+    painter.text(
+        n_center - egui::Vec2::new(0.0, n_size + 9.0),
+        egui::Align2::CENTER_CENTER,
+        "N",
+        egui::FontId::proportional(12.0),
+        egui::Color32::RED,
+    );
 }
 
-/// 日志面板：显示帧数 + 简化回放状态
-fn log_panel(ui: &mut egui::Ui, state: &UiState, hub: &Arc<TelemetryHub>) {
+/// 日志面板：显示帧数 + tlog 保存/加载 + CSV/KML 导出
+fn log_panel(ui: &mut egui::Ui, state: &mut UiState, app: &GroundControlApp) {
     ui.heading("飞行日志 (tlog)");
     ui.label(format!("已记录帧数: {}", state.log_frames));
     ui.label("日志在 TelemetryHub 中实时记录每条遥测帧（tlog 格式）。");
-    ui.label("回放功能：通过 core 的 LogManager::from_tlog 解码并驱动总线。");
-    let _ = hub; // 预留：未来导出按钮
+
+    ui.separator();
+    ui.horizontal(|ui| {
+        if ui.button("保存 tlog...").clicked() {
+            let hub = app.hub.clone();
+            let rt = app.rt.handle().clone();
+            let st = app.state.clone();
+            rt.spawn(async move {
+                if let Some(path) = rfd::AsyncFileDialog::new()
+                    .set_title("保存飞行日志")
+                    .set_file_name("flight.tlog")
+                    .save_file()
+                    .await
+                {
+                    let path = path.path().to_path_buf();
+                    let log_arc = hub.log();
+                    let res = {
+                        let log = log_arc.lock().await;
+                        log.save_file(path.to_str().unwrap_or("flight.tlog"))
+                    };
+                    if let Ok(mut s) = st.lock() {
+                        s.export_msg = match res {
+                            Ok(_) => format!("已保存: {}", path.display()),
+                            Err(e) => format!("保存失败: {e}"),
+                        };
+                    }
+                }
+            });
+        }
+        if ui.button("加载 tlog...").clicked() {
+            let hub = app.hub.clone();
+            let rt = app.rt.handle().clone();
+            let st = app.state.clone();
+            rt.spawn(async move {
+                if let Some(path) = rfd::AsyncFileDialog::new()
+                    .set_title("加载飞行日志")
+                    .add_filter("tlog", &["tlog"])
+                    .pick_file()
+                    .await
+                {
+                    let path = path.path().to_path_buf();
+                    let sp = path.to_str().unwrap_or("flight.tlog").to_string();
+                    let loaded = LogManager::load_file(&sp);
+                    let mut msg = String::new();
+                    if let Ok(lm) = &loaded {
+                        // 用载入的日志替换当前 hub 日志
+                        let log_arc = hub.log();
+                        *log_arc.lock().await = lm.clone();
+                        msg = format!("已加载 {} 帧: {}", lm.len(), path.display());
+                    } else if let Err(e) = &loaded {
+                        msg = format!("加载失败: {e}");
+                    }
+                    if let Ok(mut s) = st.lock() {
+                        s.import_msg = msg;
+                    }
+                }
+            });
+        }
+    });
+
+    ui.separator();
+    ui.horizontal(|ui| {
+        if ui.button("导出轨迹 CSV...").clicked() {
+            let rt = app.rt.handle().clone();
+            let st = app.state.clone();
+            rt.spawn(async move {
+                if let Some(path) = rfd::AsyncFileDialog::new()
+                    .set_title("导出轨迹 CSV")
+                    .set_file_name("track.csv")
+                    .save_file()
+                    .await
+                {
+                    let path = path.path().to_path_buf();
+                    let (csv, n) = {
+                        let s = st.lock().unwrap();
+                        (export_track_csv(&s.trail), s.trail.len())
+                    };
+                    let res = std::fs::write(&path, csv);
+                    if let Ok(mut s) = st.lock() {
+                        s.export_msg = match res {
+                            Ok(_) => format!("已导出 CSV: {n} 点 ({})", path.display()),
+                            Err(e) => format!("导出失败: {e}"),
+                        };
+                    }
+                }
+            });
+        }
+        if ui.button("导出轨迹 KML...").clicked() {
+            let rt = app.rt.handle().clone();
+            let st = app.state.clone();
+            rt.spawn(async move {
+                if let Some(path) = rfd::AsyncFileDialog::new()
+                    .set_title("导出轨迹 KML")
+                    .set_file_name("track.kml")
+                    .save_file()
+                    .await
+                {
+                    let path = path.path().to_path_buf();
+                    let (kml, n) = {
+                        let s = st.lock().unwrap();
+                        (export_track_kml(&s.trail, &s.mission), s.trail.len())
+                    };
+                    let res = std::fs::write(&path, kml);
+                    if let Ok(mut s) = st.lock() {
+                        s.export_msg = match res {
+                            Ok(_) => format!("已导出 KML: {n} 点 ({})", path.display()),
+                            Err(e) => format!("导出失败: {e}"),
+                        };
+                    }
+                }
+            });
+        }
+    });
+
+    if !state.export_msg.is_empty() {
+        ui.label(egui::RichText::new(&state.export_msg).color(egui::Color32::GREEN));
+    }
+    if !state.import_msg.is_empty() {
+        ui.label(egui::RichText::new(&state.import_msg).color(egui::Color32::LIGHT_BLUE));
+    }
+    ui.label("CSV/KML 由当前 GPS 轨迹（与本地航点）生成，可用于 Google Earth / 表格分析。");
+}
+
+/// 将 GPS 轨迹导出为 CSV（seq,lat,lon）
+fn export_track_csv(trail: &[(f64, f64)]) -> String {
+    let mut s = String::from("seq,latitude,longitude\n");
+    for (i, (la, lo)) in trail.iter().enumerate() {
+        s.push_str(&format!("{i},{:.7},{:.7}\n", la, lo));
+    }
+    s
+}
+
+/// 将 GPS 轨迹与航点导出为 KML（LineString + Point Placemarks）
+fn export_track_kml(trail: &[(f64, f64)], mission: &[Waypoint]) -> String {
+    let mut coords: String = String::new();
+    for (la, lo) in trail {
+        coords.push_str(&format!("{:.7},{:.7},0\n", lo, la));
+    }
+    let mut wps: String = String::new();
+    for (i, wp) in mission.iter().enumerate() {
+        wps.push_str(&format!(
+            "    <Placemark>\n      <name>WP#{i}</name>\n      <Point><coordinates>{:.7},{:.7},{}</coordinates></Point>\n    </Placemark>\n",
+            wp.lon, wp.lat, wp.alt
+        ));
+    }
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>GroundControl Track</name>
+    <Placemark>
+      <name>Track</name>
+      <LineString>
+        <coordinates>
+{coords}        </coordinates>
+      </LineString>
+    </Placemark>
+{wps}  </Document>
+</kml>
+"#
+    )
 }
 
 fn main() -> eframe::Result<()> {

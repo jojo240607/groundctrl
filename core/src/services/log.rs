@@ -21,7 +21,7 @@ pub struct LogFrame {
 }
 
 /// 日志管理器（内存记录 + 可选落盘）
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct LogManager {
     frames: Vec<LogFrame>,
     recording: bool,

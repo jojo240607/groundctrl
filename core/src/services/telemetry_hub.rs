@@ -85,6 +85,8 @@ impl TelemetryHub {
 
         tokio::spawn(async move {
             let mut parser = MavlinkParser::new();
+            // 默认开启实时日志记录（可被 set_logging 关闭）
+            log.lock().await.set_recording(true);
             tracing::info!("link {name} attached");
             bus.publish(BusEvent::LinkState {
                 link: name.clone(),

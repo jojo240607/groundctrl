@@ -66,13 +66,17 @@
 ### 2.3 地图与 HUD
 - [x] 简化地图 HUD（离线，无瓦片）：以当前位置为中心绘制航迹线 + 当前点 — `ui-desktop` Map 面板
 - [x] 飞机位置/航迹叠加显示（GPS 轨迹历史缓存于 UiState.trail）
-- [ ] 完整 HUD：姿态仪、空速/高度、电池、油门、GPS 卫星数（基础遥测已显示，姿态仪/空速表待做）
+- [x] 姿态仪升级为完整人工地平仪（artificial horizon）：天空/地面填充、roll 旋转、pitch 偏移、俯仰刻度、固定机体符号 — `ui-desktop` Telemetry 面板
+- [x] 地图增强：缩放滑块（以当前点为中心动态视野）、本地航点叠加（橙色方块）、指北针（左上 N 指示器）— `ui-desktop` Map 面板
+- [ ] 完整 HUD：空速表、高度表、油门/卫星数（基础遥测已显示，空速/高度仪表待做）
 - [ ] 集成地图瓦片组件（egui 瓦片地图 + 离线缓存，需联网/缓存，留待后续）
 
 ### 2.4 日志
 - [x] `core/services/log.rs`：`LogManager`（tlog 格式记录，每帧时间戳 + 原始 v2 字节）
 - [x] 日志回放器（from_tlog 解码 → 驱动回调；已端到端测试 round-trip）
-- [x] 导出 tlog 文件 / 从文件载入
+- [x] 导出 tlog 文件 / 从文件载入（`LogManager::save_file` / `load_file`）
+- [x] 日志面板 UI：tlog 保存/加载（rfd 文件对话框）+ 轨迹 CSV 导出 + 轨迹/航点 KML 导出 — `ui-desktop` Log 面板
+- [x] attach 时默认开启 recording（实时记录所有链路帧，可被 set_logging 关闭）
 
 ### 2.5 告警监控
 - [x] `core/services/alarms.rs`：`FlightMonitor`（低电量 / 失联 / 围栏越界，去重）
@@ -90,6 +94,8 @@
 ## Phase 3 — Android 端
 
 **目标**：Android App 复用 core，支持 USB-OTG / 网络数传。
+
+> **暂缓**：用户已明确 Android/iOS 端先不做，等 Windows 桌面端（ui-desktop）完全跑通验证稳定后再推进。本阶段条目保留供后续实施。
 
 ### 3.1 FFI 抽取
 - [ ] `bindings/`：用 `cbindgen` 或 `uniffi` 从 `core` 生成 Android 可调用的绑定
@@ -113,6 +119,8 @@
 ## Phase 4 — iOS 端
 
 **目标**：iOS App 复用 core，走网络数传（iOS 无直接 USB 串口）。
+
+> **暂缓**：与 Android 同理，iOS 端待 Windows 桌面端验证完成后再做。
 
 ### 4.1 FFI 抽取
 - [ ] `core` 提供 `staticlib` 产物 + `cbindgen` 生成 C 头
@@ -217,6 +225,20 @@
   而 SimLink 回放 5 个 PARAM_VALUE，前 4 个 `received<5` 时 `complete=false` → 测试 FAIL。
 - **修复**：测试只取**最后一次** `Params` 事件（received 最大）的 `complete` 再断言，
   或汇总所有事件后判断最终是否集满。参数拉取本身是正确逐步收敛的。
+
+### 坑 7：UI 导出/姿态仪实现要点（桌面端增强）
+- **姿态仪（artificial horizon）**：`egui::Painter` 在 `allocate_painter` 返回需 `mut`；裁剪用
+  `painter.set_clip_rect(rect)`（非旧版 `rect_clip`）。姿态旋转用闭包 `rot(x,y) -> Pos2`
+  （返回 `Pos2` 不是 `Vec2`，否则 `line_segment`/`text` 类型不匹配）。天空/地面用
+  `Shape::convex_polygon` 填充，`pitch` 单位是 f32 弧度，`clamp` 须用 f32 常量。
+- **地图 HUD**：以当前点为中心、zoom 决定视野半宽（`half_span = 1/zoom² + 0.0008`），
+  北在上的 Y 翻转映射；航点用 `rect_filled`，指北针画在 `resp.rect.min + offset`。
+- **日志导出**：`LogManager` 需 `#[derive(Clone)]`（加载 tlog 后用 `lm.clone()` 替换 hub.log）。
+  `save_file(&str)` 接收 `&str`，传 `path.to_str().unwrap()`；`load_file(&str) -> io::Result<LogManager>`
+  返回新实例。UI 用 `rfd::AsyncFileDialog`（0.14）异步取路径，回调里经 `app.rt.handle().clone().spawn`
+  跑；`hub.log().lock().await` 会因临时 `Arc` 借用报错，需先 `let log_arc = hub.log();` 再 `log_arc.lock().await`。
+- **默认记录**：`TelemetryHub::attach` 里 `log.lock().await.set_recording(true)` 默认开启实时记录，
+  否则 `log_frames` 恒为 0、导出为空（record 内部 `if !recording { return; }` 拦截）。
 
 ---
 
