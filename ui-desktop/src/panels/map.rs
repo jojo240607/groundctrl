@@ -5,6 +5,7 @@ use egui::{Align2, Color32, FontId, Painter, Pos2, Rect, Sense, Stroke, Ui, Vec2
 use crate::app::GroundControlApp;
 use crate::state::UiState;
 use groundctrl_core::vehicle::mission::Waypoint;
+use groundctrl_core::vehicle::VehicleModel;
 use crate::widgets::tiles::{
     fetch_tile, lat2ytile, load_tile_texture, lon2xtile, merc_y2lat, tile_path,
 };
@@ -212,7 +213,11 @@ pub fn map_panel(ui: &mut Ui, state: &mut UiState, app: &GroundControlApp) {
         }
     }
 
-    draw_overlays(&painter, &rect, &to_xy, &trail, &state.mission);
+    let vehicle = state
+        .selected_sys
+        .and_then(|s| state.vehicles.get(&s).cloned());
+
+    draw_overlays(&painter, &rect, &to_xy, &trail, &state.mission, &vehicle);
 }
 
 /// 航迹线、航点、当前点、指北针叠加
@@ -222,8 +227,8 @@ fn draw_overlays(
     to_xy: &dyn Fn(f64, f64) -> Pos2,
     trail: &[(f64, f64)],
     mission: &[groundctrl_core::vehicle::mission::Waypoint],
-) {
-    // 航迹线
+    vehicle: &Option<VehicleModel>,
+) {    // 航迹线
     let pts: Vec<Pos2> = trail.iter().map(|(la, lo)| to_xy(*la, *lo)).collect();
     for seg in pts.windows(2) {
         painter.line_segment(
@@ -242,9 +247,42 @@ fn draw_overlays(
         );
     }
 
-    // 当前点
+    // 当前点：朝向图标（三角形指向 yaw，并根据 roll/pitch 倾斜着色）
     if let Some(&cur_p) = pts.last() {
-        painter.circle_filled(cur_p, 4.0, Color32::GREEN);
+        if let Some(v) = vehicle {
+            let yaw = v.attitude.yaw as f32; // rad
+            let cs = yaw.cos();
+            let sn = yaw.sin();
+            // 机体前向（指北为 0°，顺时针为正）
+            let fwd = Vec2::new(sn, -cs);
+            let right = Vec2::new(cs, sn);
+            let size = 11.0_f32;
+            let nose = cur_p + fwd * size;
+            let tail_l = cur_p - fwd * size * 0.6 + right * size * 0.6;
+            let tail_r = cur_p - fwd * size * 0.6 - right * size * 0.6;
+            let roll_deg = v.attitude.roll.to_degrees();
+            let pitch_deg = v.attitude.pitch.to_degrees();
+            let col = if roll_deg.abs() > 30.0 || pitch_deg.abs() > 30.0 {
+                Color32::from_rgb(255, 140, 0)
+            } else {
+                Color32::GREEN
+            };
+            painter.add(egui::Shape::convex_polygon(
+                vec![nose, tail_l, tail_r],
+                col,
+                Stroke::new(1.0_f32, Color32::WHITE),
+            ));
+            // 模式标签
+            painter.text(
+                cur_p + Vec2::new(0.0, size + 4.0),
+                Align2::CENTER_CENTER,
+                v.flight_mode_name(),
+                FontId::proportional(10.0),
+                Color32::WHITE,
+            );
+        } else {
+            painter.circle_filled(cur_p, 4.0, Color32::GREEN);
+        }
     }
 
     // 指北针（左上角小指示器）

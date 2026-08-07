@@ -100,7 +100,9 @@
 - [x] 参数趋势面板（`TabKind::Trends`）：1Hz 采样当前参数到 `UiState::param_trends`（每序列最多 300 点），下拉多选叠加折线图，带网格/轴标签/图例/清除
 - [x] 航点地图拖拽：地图改为 `Sense::click_and_drag`，点击航点选中、拖拽实时更新经纬度（`dragging_wp` 状态），空白点击（添加模式）新增航点
 - [x] 参数面板联动：选中参数后可「在趋势图中显示」一键加入趋势并跳转 Trends 标签
-- [x] 增量编译验证：通过，无新增 warning（仅 core 预存 3 warning）
+- [x] 飞行模式显示：HeartbeatInfo 新增 `custom_mode`，`VehicleModel::flight_mode_name()` 解析 ArduPilot Copter/Plane、PX4、MAV_MODE 回退；遥测顶部状态行展示「模式: XXX」
+- [x] 地图姿态图标：当前点改为朝向三角形（yaw 旋转），roll/pitch 超阈值变橙色，下方叠加飞行模式文字标签
+- [x] 增量编译验证：通过，无新增 warning（仅 core 预存 3 warning + map.rs 一处预存 drag_released 弃用提醒）
 
 **Phase 2 交付**：功能完整的桌面地面站。
 

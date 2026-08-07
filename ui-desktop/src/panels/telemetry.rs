@@ -26,6 +26,9 @@ pub fn telemetry_panel(ui: &mut Ui, v: &VehicleModel) {
             ui.label(RichText::new(if armed { "ARMED" } else { "DISARMED" }).color(
                 if armed { Color32::RED } else { Color32::YELLOW },
             ));
+            ui.separator();
+            let fm = v.flight_mode_name();
+            ui.label(RichText::new(format!("模式: {fm}")).strong());
         }
     });
 
