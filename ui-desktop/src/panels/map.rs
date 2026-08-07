@@ -4,11 +4,14 @@ use egui::{Align2, Color32, FontId, Painter, Pos2, Rect, Sense, Stroke, Ui, Vec2
 
 use crate::app::GroundControlApp;
 use crate::state::UiState;
-use crate::widgets::tiles::{lat2ytile, load_tile_texture, lon2xtile, merc_y2lat};
+use crate::widgets::tiles::{
+    fetch_tile, lat2ytile, load_tile_texture, lon2xtile, merc_y2lat, tile_path,
+};
 
 pub fn map_panel(ui: &mut Ui, state: &mut UiState, app: &GroundControlApp) {
-    ui.heading("地图 (离线瓦片)");
+    ui.heading("地图 (在线/离线瓦片)");
     ui.horizontal(|ui| {
+        ui.checkbox(&mut state.online_tiles, "在线地图");
         ui.label("缩放:");
         ui.add(egui::Slider::new(&mut state.map_zoom, 2.0..=18.0).logarithmic(true));
         ui.label(format!("z={:.1}", state.map_zoom));
@@ -33,18 +36,14 @@ pub fn map_panel(ui: &mut Ui, state: &mut UiState, app: &GroundControlApp) {
         }
         if let Some(d) = &state.tile_dir {
             let _ = d; // 显示路径会很长，仅提示已加载
-            ui.label("● 瓦片已加载");
+            ui.label("● 离线瓦片目录");
         } else {
-            ui.label("○ 未选瓦片 (HUD 模式)");
+            ui.label("○ 在线缓存模式");
         }
     });
-    if state.tile_dir.is_none() {
-        ui.label("未选择瓦片目录：以当前位置为中心绘制航迹与航点（无地图底图）。");
-    }
-
+    let ctx = ui.ctx().clone();
     let (resp, painter) = ui.allocate_painter(ui.available_size(), Sense::hover());
     let rect = resp.rect;
-    let ctx = ui.ctx().clone();
 
     if state.trail.is_empty() {
         painter.text(
@@ -77,8 +76,8 @@ pub fn map_panel(ui: &mut Ui, state: &mut UiState, app: &GroundControlApp) {
         Pos2::new(rect.min.x + x as f32, rect.min.y + y as f32)
     };
 
-    // 瓦片底图（若已选择瓦片目录）
-    if let Some(root) = &state.tile_dir {
+    // 瓦片底图：优先用户目录，否则默认在线缓存目录（开箱即用）
+    if let Some(root) = state.tile_root() {
         let z = state.map_zoom.round() as i32;
         let n = 2f64.powi(z);
         let x0 = lon2xtile(min_lon, n).floor() as i32;
@@ -91,16 +90,36 @@ pub fn map_panel(ui: &mut Ui, state: &mut UiState, app: &GroundControlApp) {
                     continue;
                 }
                 let key = format!("{z}/{tx}/{ty}");
+                let path = tile_path(&root, z, tx, ty);
                 let tex = if let Some(t) = state.tile_cache.get(&key) {
                     t.clone()
-                } else {
-                    let path = root
-                        .join(format!("{z}"))
-                        .join(format!("{tx}"))
-                        .join(format!("{ty}.png"));
+                } else if path.exists() {
+                    // 磁盘已有（之前下载或离线目录）：加载到纹理缓存
                     let img = load_tile_texture(&ctx, &path, &key);
                     state.tile_cache.insert(key.clone(), img.clone());
                     img
+                } else {
+                    // 缺失：若开启在线地图，后台下载一次（避免重复触发）
+                    if state.online_tiles && !state.pending_tiles.contains(&key) {
+                        state.pending_tiles.insert(key.clone());
+                        let rt = app.rt.handle().clone();
+                        let st = app.state.clone();
+                        let cache_dir = root.clone();
+                        let url_tmpl = state.tile_url.clone();
+                        let key_c = key.clone();
+                        rt.spawn(async move {
+                            let ok = fetch_tile(z, tx, ty, &cache_dir, &url_tmpl).await;
+                            // 下载完成（无论成败）解除 pending，下一帧重绘
+                            if let Ok(mut s) = st.lock() {
+                                s.pending_tiles.remove(&key_c);
+                                if ok {
+                                    s.tile_cache.remove(&key_c); // 强制下一帧从磁盘加载
+                                }
+                            }
+                        });
+                    }
+                    // 暂用灰占位纹理
+                    load_tile_texture(&ctx, &path, &key)
                 };
                 // 瓦片四角经纬度 -> 屏幕坐标
                 let t_min_lon = tx as f64 / n * 360.0 - 180.0;

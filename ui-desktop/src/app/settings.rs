@@ -15,8 +15,12 @@ pub struct AppSettings {
     pub udp_bind: String,
     /// UDP 目标地址
     pub udp_target: String,
-    /// 离线瓦片根目录（绝对路径），空 = 未设置
+    /// 离线瓦片根目录（绝对路径）。空 = 使用默认在线缓存目录（开箱即用在线地图）
     pub tile_dir: Option<PathBuf>,
+    /// 是否启用在线瓦片下载（瓦片缺失时后台拉取 OSM）
+    pub online_tiles: bool,
+    /// 在线瓦片源 URL 模板（{z}/{x}/{y}）
+    pub tile_url: String,
     /// 默认地图缩放
     pub map_zoom: f64,
     /// 窗口内宽
@@ -33,6 +37,8 @@ impl Default for AppSettings {
             udp_bind: "0.0.0.0:14550".to_string(),
             udp_target: "127.0.0.1:14550".to_string(),
             tile_dir: None,
+            online_tiles: true,
+            tile_url: crate::widgets::tiles::DEFAULT_TILE_URL.to_string(),
             map_zoom: 14.0,
             window_w: 1000.0,
             window_h: 680.0,
@@ -41,11 +47,17 @@ impl Default for AppSettings {
 }
 
 impl AppSettings {
-    /// 返回配置文件路径：<用户配置目录>/groundctrl/settings.json
-    pub fn path() -> Option<PathBuf> {
+    /// 返回用户配置根目录（跨平台回退）：<配置目录>/groundctrl
+    pub fn config_dir() -> Option<PathBuf> {
         let mut dir = dirs_if_available()?;
         dir.push("groundctrl");
         std::fs::create_dir_all(&dir).ok()?;
+        Some(dir)
+    }
+
+    /// 返回配置文件路径：<用户配置目录>/groundctrl/settings.json
+    pub fn path() -> Option<PathBuf> {
+        let mut dir = Self::config_dir()?;
         dir.push("settings.json");
         Some(dir)
     }

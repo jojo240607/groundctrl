@@ -1,6 +1,6 @@
 //! UI 共享状态：主循环与各面板之间传递的本地状态。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use groundctrl_core::services::alarms::Alarm;
@@ -42,11 +42,28 @@ pub struct UiState {
     pub wp_alt: f32,
     /// 地图缩放级别（越大越近）
     pub map_zoom: f64,
-    /// 离线瓦片根目录（{z}/{x}/{y}.png），None = 退化 HUD
+    /// 用户指定的离线瓦片根目录（{z}/{x}/{y}.png）。None = 用默认在线缓存目录
     pub tile_dir: Option<PathBuf>,
+    /// 是否启用在线瓦片下载
+    pub online_tiles: bool,
+    /// 在线瓦片源 URL 模板
+    pub tile_url: String,
     /// 瓦片纹理缓存（key = "z/x/y"）
     pub tile_cache: HashMap<String, egui::TextureHandle>,
+    /// 正在后台下载的瓦片 key 集合（避免重复触发）
+    pub pending_tiles: HashSet<String>,
     /// 导出 / 导入反馈信息
     pub export_msg: String,
     pub import_msg: String,
+}
+
+impl UiState {
+    /// 实际瓦片根目录：用户目录优先，否则默认在线缓存目录（开箱即用）。
+    pub fn tile_root(&self) -> Option<PathBuf> {
+        if let Some(d) = &self.tile_dir {
+            Some(d.clone())
+        } else {
+            crate::widgets::tiles::default_tile_cache_dir()
+        }
+    }
 }

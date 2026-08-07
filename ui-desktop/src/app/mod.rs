@@ -45,6 +45,8 @@ impl GroundControlApp {
             ui_state.udp_bind = s.udp_bind.clone();
             ui_state.udp_target = s.udp_target.clone();
             ui_state.tile_dir = s.tile_dir.clone();
+            ui_state.online_tiles = s.online_tiles;
+            ui_state.tile_url = s.tile_url.clone();
             ui_state.map_zoom = s.map_zoom;
         }
         let state = Arc::new(Mutex::new(ui_state));
@@ -208,6 +210,8 @@ impl SaveHandle {
             s.udp_bind = st.udp_bind.clone();
             s.udp_target = st.udp_target.clone();
             s.tile_dir = st.tile_dir.clone();
+            s.online_tiles = st.online_tiles;
+            s.tile_url = st.tile_url.clone();
             s.map_zoom = st.map_zoom;
         }
         s.save();
