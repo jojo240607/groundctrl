@@ -48,6 +48,8 @@ impl GroundControlApp {
             ui_state.online_tiles = s.online_tiles;
             ui_state.tile_url = s.tile_url.clone();
             ui_state.map_zoom = s.map_zoom;
+            ui_state.trend_selected = s.trend_selected.clone();
+            ui_state.trend_enabled = s.trend_enabled;
         }
         let state = Arc::new(Mutex::new(ui_state));
 
@@ -213,6 +215,8 @@ impl SaveHandle {
             s.online_tiles = st.online_tiles;
             s.tile_url = st.tile_url.clone();
             s.map_zoom = st.map_zoom;
+            s.trend_selected = st.trend_selected.clone();
+            s.trend_enabled = st.trend_enabled;
         }
         s.save();
     }

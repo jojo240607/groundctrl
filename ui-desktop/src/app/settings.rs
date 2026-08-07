@@ -27,6 +27,10 @@ pub struct AppSettings {
     pub window_w: f32,
     /// 窗口内高
     pub window_h: f32,
+    /// 趋势图选中的参数名（重启后自动恢复）
+    pub trend_selected: Vec<String>,
+    /// 趋势图是否启用
+    pub trend_enabled: bool,
 }
 
 impl Default for AppSettings {
@@ -42,6 +46,8 @@ impl Default for AppSettings {
             map_zoom: 14.0,
             window_w: 1000.0,
             window_h: 680.0,
+            trend_selected: Vec::new(),
+            trend_enabled: false,
         }
     }
 }

@@ -63,6 +63,7 @@ pub fn params_panel(ui: &mut Ui, state: &mut UiState, app: &GroundControlApp) {
             }
             state.trend_enabled = true;
             state.tab = crate::app::TabKind::Trends;
+            app.save_settings(); // 持久化趋势选择
         }
     }
 }

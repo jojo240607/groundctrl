@@ -16,11 +16,13 @@ const PALETTE: [Color32; 8] = [
     Color32::LIGHT_GRAY,
 ];
 
-pub fn trends_panel(ui: &mut Ui, state: &mut UiState, _app: &GroundControlApp) {
+pub fn trends_panel(ui: &mut Ui, state: &mut UiState, app: &GroundControlApp) {
     ui.heading("参数趋势");
 
     ui.horizontal(|ui| {
-        ui.checkbox(&mut state.trend_enabled, "采样 (1Hz)");
+        if ui.checkbox(&mut state.trend_enabled, "采样 (1Hz)").changed() {
+            app.save_settings();
+        }
         if !state.params.is_empty() {
             egui::ComboBox::from_id_source("trend_add")
                 .selected_text("+ 添加参数")
@@ -35,12 +37,14 @@ pub fn trends_panel(ui: &mut Ui, state: &mut UiState, _app: &GroundControlApp) {
                             } else if state.trend_selected.len() < PALETTE.len() {
                                 state.trend_selected.push(n);
                             }
+                            app.save_settings();
                         }
                     }
                 });
         }
         if ui.button("清空选择").clicked() {
             state.trend_selected.clear();
+            app.save_settings();
         }
     });
 
@@ -63,6 +67,7 @@ pub fn trends_panel(ui: &mut Ui, state: &mut UiState, _app: &GroundControlApp) {
     });
     if let Some(r) = to_remove {
         state.trend_selected.retain(|x| x != &r);
+        app.save_settings();
     }
 
     let (resp, painter) =
