@@ -61,6 +61,14 @@ pub struct UiState {
     /// 导出 / 导入反馈信息
     pub export_msg: String,
     pub import_msg: String,
+    /// 参数实时趋势（参数名 -> (时间戳秒, 值) 序列），用于趋势图
+    pub param_trends: HashMap<String, Vec<(f64, f64)>>,
+    /// 是否启用参数趋势采样（1Hz）
+    pub trend_enabled: bool,
+    /// 趋势图当前选中的参数名（可叠加显示）
+    pub trend_selected: Vec<String>,
+    /// 地图中正在拖拽的航点索引
+    pub dragging_wp: Option<usize>,
 }
 
 impl UiState {

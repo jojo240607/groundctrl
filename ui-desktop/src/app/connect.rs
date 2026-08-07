@@ -10,6 +10,7 @@ pub enum TabKind {
     Map,
     Log,
     Alarms,
+    Trends,
     Settings,
 }
 

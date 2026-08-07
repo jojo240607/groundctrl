@@ -69,7 +69,7 @@ pub fn map_panel(ui: &mut Ui, state: &mut UiState, app: &GroundControlApp) {
         }
     });
     let ctx = ui.ctx().clone();
-    let (resp, painter) = ui.allocate_painter(ui.available_size(), Sense::click());
+    let (resp, painter) = ui.allocate_painter(ui.available_size(), Sense::click_and_drag());
     let rect = resp.rect;
 
     let trail = state
@@ -109,16 +109,43 @@ pub fn map_panel(ui: &mut Ui, state: &mut UiState, app: &GroundControlApp) {
         Pos2::new(rect.min.x + x as f32, rect.min.y + y as f32)
     };
 
-    // 点击地图添加航点（反算到经纬度）
-    if state.map_click_add_wp && resp.clicked() {
-        if let Some(ptr) = resp.hover_pos() {
-            let local_x = (ptr.x - rect.min.x - pad as f32) as f64;
-            let local_y = (ptr.y - rect.min.y - pad as f32) as f64;
-            let lo = min_lon + (local_x / w) * lon_span;
-            let la = max_lat - (local_y / h) * lat_span;
-            if la > -90.0 && la < 90.0 {
+    // 反算屏幕坐标 -> 经纬度
+    let from_xy = |pos: Pos2| -> (f64, f64) {
+        let lx = (pos.x - rect.min.x - pad as f32) as f64;
+        let ly = (pos.y - rect.min.y - pad as f32) as f64;
+        let lo = min_lon + (lx / w) * lon_span;
+        let la = max_lat - (ly / h) * lat_span;
+        (la.clamp(-90.0, 90.0), lo)
+    };
+
+    // 航点交互：选中后可拖拽移动；空白点击（添加模式）则新增
+    if let Some(pos) = resp.hover_pos() {
+        let hit = state
+            .mission
+            .iter()
+            .enumerate()
+            .find(|(_, wp)| to_xy(wp.lat, wp.lon).distance(pos) < 10.0)
+            .map(|(i, _)| i);
+
+        if resp.drag_started() {
+            if let Some(i) = hit {
+                state.dragging_wp = Some(i);
+            } else if state.map_click_add_wp {
+                let (la, lo) = from_xy(pos);
                 state.mission.push(Waypoint::nav(la, lo, state.wp_alt));
             }
+        }
+        if resp.dragged() {
+            if let Some(i) = state.dragging_wp {
+                if i < state.mission.len() {
+                    let (la, lo) = from_xy(pos);
+                    state.mission[i].lat = la;
+                    state.mission[i].lon = lo;
+                }
+            }
+        }
+        if resp.drag_released() {
+            state.dragging_wp = None;
         }
     }
 

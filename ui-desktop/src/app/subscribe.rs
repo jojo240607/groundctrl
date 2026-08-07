@@ -105,6 +105,38 @@ pub fn subscribe_telemetry(
         });
     }
 
+    // 周期性采样参数趋势（1Hz）
+    {
+        let state = state.clone();
+        rt.spawn(async move {
+            let mut ticker = tokio::time::interval(Duration::from_secs(1));
+            loop {
+                ticker.tick().await;
+                if let Ok(mut s) = state.lock() {
+                    if !s.trend_enabled {
+                        continue;
+                    }
+                    let now = now_secs() as f64;
+                    // 最多保留 300 点（5 分钟 @1Hz）；先拷贝快照避免借用冲突
+                    let snapshot: Vec<(String, f64)> = s
+                        .params
+                        .iter()
+                        .map(|p| (p.name.clone(), p.value as f64))
+                        .collect();
+                    for (name, val) in snapshot {
+                        let series = s.param_trends.entry(name).or_default();
+                        if series.last().map(|l| l.1 != val).unwrap_or(true) {
+                            series.push((now, val));
+                            if series.len() > 300 {
+                                series.remove(0);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
     // 周期性刷新日志帧数
     {
         let hub = hub.clone();

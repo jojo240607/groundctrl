@@ -54,4 +54,15 @@ pub fn params_panel(ui: &mut Ui, state: &mut UiState, app: &GroundControlApp) {
     } else {
         ui.label("点击左侧参数名可选中并修改后写入飞控");
     }
+
+    // 选中参数可一键加入趋势图
+    if let Some(name) = &selected {
+        if ui.button("在趋势图中显示").clicked() {
+            if !state.trend_selected.contains(name) && state.trend_selected.len() < 8 {
+                state.trend_selected.push(name.clone());
+            }
+            state.trend_enabled = true;
+            state.tab = crate::app::TabKind::Trends;
+        }
+    }
 }

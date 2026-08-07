@@ -8,3 +8,4 @@ pub mod mission;
 pub mod params;
 pub mod settings;
 pub mod telemetry;
+pub mod trends;

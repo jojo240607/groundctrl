@@ -44,6 +44,7 @@ impl eframe::App for GroundControlApp {
                     (TabKind::Map, "地图"),
                     (TabKind::Log, "日志"),
                     (TabKind::Alarms, "告警"),
+                    (TabKind::Trends, "趋势"),
                     (TabKind::Settings, "设置"),
                 ] {
                     if ui.selectable_label(state.tab == tk, label).clicked() {
@@ -62,6 +63,7 @@ impl eframe::App for GroundControlApp {
                 TabKind::Map => panels::map::map_panel(ui, &mut state, self),
                 TabKind::Log => panels::log::log_panel(ui, &mut state, self),
                 TabKind::Alarms => panels::alarms::alarms_panel(ui, &mut state, self),
+                TabKind::Trends => panels::trends::trends_panel(ui, &mut state, self),
                 TabKind::Settings => panels::settings::settings_panel(ui, &mut state, self),
             }
         });
