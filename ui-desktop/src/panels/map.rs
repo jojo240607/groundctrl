@@ -15,6 +15,7 @@ pub fn map_panel(ui: &mut Ui, state: &mut UiState, app: &GroundControlApp) {
         if ui.button("选择瓦片目录...").clicked() {
             let rt = app.rt.handle().clone();
             let st = app.state.clone();
+            let h = app.save_handle();
             rt.spawn(async move {
                 if let Some(dir) = rfd::AsyncFileDialog::new()
                     .set_title("选择瓦片根目录 ({z}/{x}/{y}.png)")
@@ -24,6 +25,8 @@ pub fn map_panel(ui: &mut Ui, state: &mut UiState, app: &GroundControlApp) {
                     if let Ok(mut s) = st.lock() {
                         s.tile_dir = Some(dir.path().to_path_buf());
                         s.tile_cache.clear(); // 切换目录时清空缓存
+                        drop(s);
+                        h.save();
                     }
                 }
             });

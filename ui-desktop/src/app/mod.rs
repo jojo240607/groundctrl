@@ -1,9 +1,11 @@
 //! 主应用结构：状态驱动、tokio runtime、链路连接与遥测订阅。
 
 mod connect;
+mod settings;
 mod subscribe;
 
 pub use connect::{ConnectKind, TabKind};
+pub use settings::AppSettings;
 pub use subscribe::subscribe_telemetry;
 
 use std::sync::{Arc, Mutex};
@@ -19,6 +21,8 @@ pub struct GroundControlApp {
     pub state: Arc<Mutex<UiState>>,
     pub hub: Arc<TelemetryHub>,
     pub rt: tokio::runtime::Runtime,
+    /// 当前加载的设置（用于保存时回写）
+    settings: Arc<Mutex<AppSettings>>,
 }
 
 impl GroundControlApp {
@@ -29,8 +33,21 @@ impl GroundControlApp {
             .expect("tokio runtime");
         let hub = Arc::new(TelemetryHub::new());
 
-        // 共享 UI 状态
-        let state = Arc::new(Mutex::new(UiState::default()));
+        // 加载持久化设置
+        let settings = Arc::new(Mutex::new(AppSettings::load()));
+
+        // 共享 UI 状态：用设置初始化连接/地图默认值
+        let mut ui_state = UiState::default();
+        {
+            let s = settings.lock().unwrap();
+            ui_state.serial_port = s.serial_port.clone();
+            ui_state.baud = s.baud;
+            ui_state.udp_bind = s.udp_bind.clone();
+            ui_state.udp_target = s.udp_target.clone();
+            ui_state.tile_dir = s.tile_dir.clone();
+            ui_state.map_zoom = s.map_zoom;
+        }
+        let state = Arc::new(Mutex::new(ui_state));
 
         // 订阅遥测与总线事件、周期刷新日志帧数
         subscribe_telemetry(&hub, &state, &rt);
@@ -43,7 +60,34 @@ impl GroundControlApp {
             });
         }
 
-        Self { state, hub, rt }
+        Self {
+            state,
+            hub,
+            rt,
+            settings,
+        }
+    }
+
+    /// 轻量保存句柄（可 Clone，供异步闭包中调用，避免持有整个 App）
+    pub fn save_handle(&self) -> SaveHandle {
+        SaveHandle {
+            state: self.state.clone(),
+            settings: self.settings.clone(),
+        }
+    }
+
+    /// 将当前 UI 状态回写到设置并保存到磁盘。
+    /// 在连接配置变更、地图目录选择、退出时调用。
+    pub fn save_settings(&self) {
+        self.save_handle().save();
+    }
+
+    /// 记录当前窗口尺寸到设置（每帧调用，纯内存写入，落盘在 save 时）
+    pub fn record_window_size(&self, w: f32, h: f32) {
+        if let Ok(mut s) = self.settings.lock() {
+            s.window_w = w;
+            s.window_h = h;
+        }
     }
 
     /// 断开当前活动链路
@@ -144,4 +188,28 @@ pub fn now_secs() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+/// 轻量保存句柄：持有 state 与 settings 的 Arc，可在异步闭包中安全调用 `save`。
+/// 避免把整个 `GroundControlApp`（含 tokio Runtime，不可 Clone）传入闭包。
+#[derive(Clone)]
+pub struct SaveHandle {
+    state: Arc<Mutex<UiState>>,
+    settings: Arc<Mutex<AppSettings>>,
+}
+
+impl SaveHandle {
+    /// 从 UI 状态读取连接/地图偏好，写入 settings 并落盘。
+    pub fn save(&self) {
+        let mut s = self.settings.lock().unwrap();
+        if let Ok(st) = self.state.lock() {
+            s.serial_port = st.serial_port.clone();
+            s.baud = st.baud;
+            s.udp_bind = st.udp_bind.clone();
+            s.udp_target = st.udp_target.clone();
+            s.tile_dir = st.tile_dir.clone();
+            s.map_zoom = st.map_zoom;
+        }
+        s.save();
+    }
 }

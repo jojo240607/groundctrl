@@ -14,6 +14,11 @@ use widgets::alarm_bar::alarm_bar;
 
 impl eframe::App for GroundControlApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // 记录当前窗口尺寸到设置（退出时落盘）
+        if let Some(r) = ctx.input(|i| i.viewport().inner_rect) {
+            self.record_window_size(r.width(), r.height());
+        }
+
         let mut state = self.state.lock().unwrap();
 
         egui::TopBottomPanel::top("top").show(ctx, |ui| {
@@ -71,15 +76,21 @@ impl eframe::App for GroundControlApp {
         // 请求下一帧，保持刷新
         ctx.request_repaint_after(app::REPAINT_INTERVAL);
     }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        // 退出时保存设置（窗口尺寸由 egui 维护，这里保存连接/地图偏好）
+        self.save_settings();
+    }
 }
 
 fn main() -> eframe::Result<()> {
     // 初始化日志
     let _ = tracing_subscriber::fmt::try_init();
 
+    let settings = app::AppSettings::load();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1000.0, 680.0])
+            .with_inner_size([settings.window_w, settings.window_h])
             .with_title("Ground Control"),
         ..Default::default()
     };

@@ -21,6 +21,7 @@ pub fn connection_panel(ui: &mut Ui, state: &mut UiState, app: &GroundControlApp
                 state.serial_port.clone(),
                 state.baud,
             ));
+            app.save_settings();
         }
     });
 
@@ -34,6 +35,7 @@ pub fn connection_panel(ui: &mut Ui, state: &mut UiState, app: &GroundControlApp
                 state.udp_bind.clone(),
                 state.udp_target.clone(),
             ));
+            app.save_settings();
         }
     });
 
