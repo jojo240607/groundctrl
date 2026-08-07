@@ -132,6 +132,17 @@ impl SimLink {
                     hdg: (t * 10.0) as u16 % 360,
                 });
                 let _ = producer.send(enc(gps));
+
+                // 空速 / 地速 / 垂直速度 / 油门（合成，用于 HUD 仪表验证）
+                let vfr = mlink::MavMessage::VFR_HUD(mav::VFR_HUD_DATA {
+                    airspeed: 15.0 + (t * 0.7).sin() as f32 * 4.0,
+                    groundspeed: 14.0 + (t * 0.6).cos() as f32 * 3.0,
+                    heading: (t * 10.0) as i16 % 360,
+                    throttle: (50.0 + (t * 0.9).sin() as f32 * 20.0) as u16,
+                    alt: 10.0,
+                    climb: (t * 0.4).sin() as f32 * 2.0,
+                });
+                let _ = producer.send(enc(vfr));
             }
         });
 

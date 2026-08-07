@@ -34,6 +34,18 @@ pub struct Battery {
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
+pub struct AirData {
+    /// 真空速 (m/s)
+    pub airspeed: f32,
+    /// 地速 (m/s)
+    pub groundspeed: f32,
+    /// 垂直速度 (m/s, 爬升为正)
+    pub climb: f32,
+    /// 油门 (%) 0..100
+    pub throttle: u16,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct HeartbeatInfo {
     pub system_id: u8,
     pub component_id: u8,
@@ -54,6 +66,7 @@ pub struct VehicleModel {
     pub attitude: Attitude,
     pub gps: GpsPos,
     pub battery: Battery,
+    pub air: AirData,
     pub link_name: String,
 }
 
@@ -99,6 +112,12 @@ impl VehicleModel {
                 self.gps.alt = d.alt as f32 / 1000.0;
                 self.gps.fix_type = d.fix_type as u8;
                 self.gps.satellites = d.satellites_visible;
+            }
+            mlink::MavMessage::VFR_HUD(d) => {
+                self.air.airspeed = d.airspeed;
+                self.air.groundspeed = d.groundspeed;
+                self.air.climb = d.climb;
+                self.air.throttle = d.throttle;
             }
             _ => {}
         }

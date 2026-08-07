@@ -68,7 +68,8 @@
 - [x] 飞机位置/航迹叠加显示（GPS 轨迹历史缓存于 UiState.trail）
 - [x] 姿态仪升级为完整人工地平仪（artificial horizon）：天空/地面填充、roll 旋转、pitch 偏移、俯仰刻度、固定机体符号 — `ui-desktop` Telemetry 面板
 - [x] 地图增强：缩放滑块（以当前点为中心动态视野）、本地航点叠加（橙色方块）、指北针（左上 N 指示器）— `ui-desktop` Map 面板
-- [ ] 完整 HUD：空速表、高度表、油门/卫星数（基础遥测已显示，空速/高度仪表待做）
+- [x] 完整 HUD：空速表 / 高度表（圆形指针仪表，270° 弧 + 绿弧比例 + 中央数字）— `ui-desktop` Telemetry 面板
+- [x] 空速数据链路：`VehicleModel.air` (Airspeed) 由 `VFR_HUD` 填充；SimLink 合成 VFR_HUD（空速/地速/爬升/油门）
 - [ ] 集成地图瓦片组件（egui 瓦片地图 + 离线缓存，需联网/缓存，留待后续）
 
 ### 2.4 日志
@@ -239,6 +240,15 @@
   跑；`hub.log().lock().await` 会因临时 `Arc` 借用报错，需先 `let log_arc = hub.log();` 再 `log_arc.lock().await`。
 - **默认记录**：`TelemetryHub::attach` 里 `log.lock().await.set_recording(true)` 默认开启实时记录，
   否则 `log_frames` 恒为 0、导出为空（record 内部 `if !recording { return; }` 拦截）。
+
+### 坑 8：空速/高度仪表（VFR_HUD + 圆形仪表）
+- **MAVLink 字段类型**：`VFR_HUD.throttle` 在 mavlink `common` 0.11 是 `u16`（不是 `i16`），
+  `VehicleModel.air.throttle` 须为 `u16`，否则 `apply` 赋值类型不匹配（E0308）。其余 `airspeed`/
+  `groundspeed`/`climb`/`alt` 均为 `f32`。
+- **SimLink**：需补发 `VFR_HUD` 消息（原 SimLink 只发 HEARTBEAT/ATTITUDE/SYS_STATUS/GPS），
+  否则 `VehicleModel.air` 恒为默认 0，`round_gauge` 永远指底。合成时用地速/爬升/油门做 sin/cos 平滑变化即可驱动仪表。
+- **圆形仪表**：`round_gauge` 用 270° 弧（start=-225°，sweep=270°），frac 比例段画绿弧 + 黄指针 +
+  中央数字 + 下方标签；`allocate_painter` 返回的 painter 不需 mut（只读绘制）。
 
 ---
 

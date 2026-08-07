@@ -382,6 +382,67 @@ impl eframe::App for GroundControlApp {
     }
 }
 
+/// 圆形仪表（指针式）：value 映射到 [min,max] 的 270° 弧，指针 + 数字
+fn round_gauge(
+    painter: &egui::Painter,
+    center: egui::Pos2,
+    r: f32,
+    value: f32,
+    label: &str,
+    min: f32,
+    max: f32,
+) {
+    // 270° 弧：起始 -225°（左下），顺时针到 +45°（右下）
+    let start_deg = -225.0_f32;
+    let sweep_deg = 270.0_f32;
+    let frac = ((value - min) / (max - min)).clamp(0.0, 1.0);
+    let val_deg = start_deg + frac * sweep_deg;
+
+    // 表盘外圈
+    painter.circle_stroke(center, r, egui::Stroke::new(2.0_f32, egui::Color32::GRAY));
+
+    // 刻度弧（绿色，按 frac 比例）
+    let arc_len = 40; // 分段数
+    for i in 0..arc_len {
+        let a0 = (start_deg + (i as f32 / arc_len as f32) * sweep_deg).to_radians();
+        let a1 = (start_deg + ((i + 1) as f32 / arc_len as f32) * sweep_deg).to_radians();
+        let p0 = center + egui::Vec2::new(a0.cos(), a0.sin()) * r;
+        let p1 = center + egui::Vec2::new(a1.cos(), a1.sin()) * r;
+        let col = if (i as f32 / arc_len as f32) <= frac {
+            egui::Color32::GREEN
+        } else {
+            egui::Color32::DARK_GRAY
+        };
+        painter.line_segment([p0, p1], egui::Stroke::new(3.0_f32, col));
+    }
+
+    // 指针
+    let va = val_deg.to_radians();
+    let tip = center + egui::Vec2::new(va.cos(), va.sin()) * (r - 10.0);
+    painter.line_segment(
+        [center, tip],
+        egui::Stroke::new(2.5_f32, egui::Color32::YELLOW),
+    );
+    painter.circle_filled(center, 4.0, egui::Color32::YELLOW);
+
+    // 中央数字
+    painter.text(
+        center + egui::Vec2::new(0.0, r * 0.45),
+        egui::Align2::CENTER_CENTER,
+        format!("{value:.1}"),
+        egui::FontId::proportional(16.0),
+        egui::Color32::WHITE,
+    );
+    // 标签（下方）
+    painter.text(
+        center + egui::Vec2::new(0.0, r + 10.0),
+        egui::Align2::CENTER_CENTER,
+        label,
+        egui::FontId::proportional(11.0),
+        egui::Color32::LIGHT_GRAY,
+    );
+}
+
 fn telemetry_panel(ui: &mut egui::Ui, v: &VehicleModel) {
     ui.heading("遥测");
     ui.horizontal(|ui| {
@@ -506,6 +567,42 @@ fn telemetry_panel(ui: &mut egui::Ui, v: &VehicleModel) {
         roll.to_degrees(),
         pitch.to_degrees(),
         v.attitude.yaw.to_degrees()
+    ));
+
+    ui.separator();
+    // 空速表 + 高度表（圆形仪表，指针式）
+    ui.label("空速 / 高度");
+    ui.horizontal(|ui| {
+        let (resp_a, painter_a) = ui.allocate_painter(
+            egui::Vec2::new(150.0, 150.0),
+            egui::Sense::hover(),
+        );
+        round_gauge(
+            &painter_a,
+            resp_a.rect.center(),
+            66.0,
+            v.air.airspeed,
+            "空速 m/s",
+            0.0,
+            40.0,
+        );
+        let (resp_h, painter_h) = ui.allocate_painter(
+            egui::Vec2::new(150.0, 150.0),
+            egui::Sense::hover(),
+        );
+        round_gauge(
+            &painter_h,
+            resp_h.rect.center(),
+            66.0,
+            v.gps.relative_alt,
+            "高度 m",
+            0.0,
+            120.0,
+        );
+    });
+    ui.label(format!(
+        "地速: {:.1} m/s   爬升: {:.1} m/s   油门: {}%",
+        v.air.groundspeed, v.air.climb, v.air.throttle
     ));
 
     ui.separator();
