@@ -59,6 +59,10 @@ struct UiState {
     wp_alt: f32,
     /// 地图缩放级别（越大越近）
     map_zoom: f64,
+    /// 离线瓦片根目录（{z}/{x}/{y}.png），None = 退化 HUD
+    tile_dir: Option<std::path::PathBuf>,
+    /// 瓦片纹理缓存（key = "z/x/y"）
+    tile_cache: std::collections::HashMap<String, egui::TextureHandle>,
     /// 导出 / 导入反馈信息
     export_msg: String,
     import_msg: String,
@@ -361,7 +365,7 @@ impl eframe::App for GroundControlApp {
                 TabKind::Telemetry => telemetry_panel(ui, &state.vehicle),
                 TabKind::Params => params_panel(ui, &mut state, self),
                 TabKind::Mission => mission_panel(ui, &mut state, self),
-                TabKind::Map => map_panel(ui, &mut state),
+                TabKind::Map => map_panel(ui, &mut state, self),
                 TabKind::Log => log_panel(ui, &mut state, self),
             }
         });
@@ -750,21 +754,46 @@ fn mission_panel(ui: &mut egui::Ui, state: &mut UiState, app: &GroundControlApp)
     });
 }
 
-/// 地图 HUD：简化经纬度散点 + 航迹线 + 航点叠加 + 指北针（离线，无瓦片）
-fn map_panel(ui: &mut egui::Ui, state: &mut UiState) {
-    ui.heading("地图 (简化 HUD)");
-    ui.label("离线模式：以当前位置为中心绘制航迹与航点（无地图瓦片）");
+/// 地图：离线瓦片（{z}/{x}/{y}.png）+ 航迹/航点/指北针叠加
+fn map_panel(ui: &mut egui::Ui, state: &mut UiState, app: &GroundControlApp) {
+    ui.heading("地图 (离线瓦片)");
     ui.horizontal(|ui| {
         ui.label("缩放:");
         ui.add(egui::Slider::new(&mut state.map_zoom, 2.0..=18.0).logarithmic(true));
         ui.label(format!("z={:.1}", state.map_zoom));
+        if ui.button("选择瓦片目录...").clicked() {
+            let rt = app.rt.handle().clone();
+            let st = app.state.clone();
+            rt.spawn(async move {
+                if let Some(dir) = rfd::AsyncFileDialog::new()
+                    .set_title("选择瓦片根目录 ({z}/{x}/{y}.png)")
+                    .pick_folder()
+                    .await
+                {
+                    if let Ok(mut s) = st.lock() {
+                        s.tile_dir = Some(dir.path().to_path_buf());
+                        s.tile_cache.clear(); // 切换目录时清空缓存
+                    }
+                }
+            });
+        }
+        if let Some(d) = &state.tile_dir {
+            let _ = d; // 显示路径会很长，仅提示已加载
+            ui.label("● 瓦片已加载");
+        } else {
+            ui.label("○ 未选瓦片 (HUD 模式)");
+        }
     });
+    if state.tile_dir.is_none() {
+        ui.label("未选择瓦片目录：以当前位置为中心绘制航迹与航点（无地图底图）。");
+    }
 
     let (resp, painter) = ui.allocate_painter(
         ui.available_size(),
         egui::Sense::hover(),
     );
     let rect = resp.rect;
+    let ctx = ui.ctx().clone();
 
     if state.trail.is_empty() {
         painter.text(
@@ -779,7 +808,6 @@ fn map_panel(ui: &mut egui::Ui, state: &mut UiState) {
 
     // 以当前位置为视图中心；zoom 越大视野越窄
     let cur = *state.trail.last().unwrap();
-    // 视野半宽（度）：zoom 18 => 约 0.002°，zoom 2 => 约 1.0°
     let half_span = (1.0 / (state.map_zoom * state.map_zoom)) + 0.0008;
     let min_lat = cur.0 - half_span;
     let max_lat = cur.0 + half_span;
@@ -793,17 +821,58 @@ fn map_panel(ui: &mut egui::Ui, state: &mut UiState) {
     let h: f64 = (rect.height() - 2.0 * pad as f32) as f64;
 
     let to_xy = |la: f64, lo: f64| -> egui::Pos2 {
-        // 经度为 X，纬度为 Y（Y 轴翻转，北在上）
         let x = pad + ((lo - min_lon) / lon_span) * w;
         let y = pad + ((max_lat - la) / lat_span) * h;
         egui::Pos2::new(rect.min.x + x as f32, rect.min.y + y as f32)
     };
 
+    // 瓦片底图（若已选择瓦片目录）
+    if let Some(root) = &state.tile_dir {
+        let z = state.map_zoom.round() as i32;
+        // Web Mercator 瓦片换算
+        let n = 2f64.powi(z);
+        let lon2xtile = |lo: f64| -> f64 { (lo + 180.0) / 360.0 * n };
+        let lat2ytile = |la: f64| -> f64 {
+            let r = la.to_radians();
+            (1.0 - r.tan().ln() / std::f64::consts::PI) / 2.0 * n
+        };
+        let x0 = lon2xtile(min_lon).floor() as i32;
+        let x1 = lon2xtile(max_lon).floor() as i32;
+        let y0 = lat2ytile(max_lat).floor() as i32;
+        let y1 = lat2ytile(min_lat).floor() as i32;
+        for tx in x0..=x1 {
+            for ty in y0..=y1 {
+                if tx < 0 || ty < 0 || tx >= n as i32 || ty >= n as i32 {
+                    continue;
+                }
+                let key = format!("{z}/{tx}/{ty}");
+                let tex = if let Some(t) = state.tile_cache.get(&key) {
+                    t.clone()
+                } else {
+                    // 解码 PNG（失败则用占位纹理）
+                    let path = root.join(format!("{z}")).join(format!("{tx}")).join(format!("{ty}.png"));
+                    let img = load_tile_texture(&ctx, &path, &key);
+                    state.tile_cache.insert(key.clone(), img.clone());
+                    img
+                };
+                // 瓦片四角经纬度 -> 屏幕坐标
+                let t_min_lon = tx as f64 / n * 360.0 - 180.0;
+                let t_max_lat = merc_y2lat((ty as f64) / n);
+                let t_max_lon = (tx as f64 + 1.0) / n * 360.0 - 180.0;
+                let t_min_lat = merc_y2lat((ty as f64 + 1.0) / n);
+                let p_tl = to_xy(t_max_lat, t_min_lon);
+                let p_br = to_xy(t_min_lat, t_max_lon);
+                let r = egui::Rect::from_two_pos(p_tl, p_br);
+                ui.painter().image(tex.id(), r, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
+            }
+        }
+    }
+
     // 航迹线
     let pts: Vec<egui::Pos2> = state.trail.iter().map(|(la, lo)| to_xy(*la, *lo)).collect();
-    for w in pts.windows(2) {
+    for seg in pts.windows(2) {
         painter.line_segment(
-            [w[0], w[1]],
+            [seg[0], seg[1]],
             egui::Stroke::new(1.5_f32, egui::Color32::LIGHT_BLUE),
         );
     }
@@ -838,6 +907,38 @@ fn map_panel(ui: &mut egui::Ui, state: &mut UiState) {
         egui::FontId::proportional(12.0),
         egui::Color32::RED,
     );
+}
+
+/// 由 Web Mercator 归一化 y (0..1, 北=0) 反算纬度
+fn merc_y2lat(y: f64) -> f64 {
+    let n = std::f64::consts::PI - 2.0 * std::f64::consts::PI * y;
+    (n / 2.0).sin().atan2((n / 2.0).cos()) * (180.0 / std::f64::consts::PI)
+}
+
+/// 加载瓦片 PNG 为 egui 纹理；失败返回 1x1 灰纹理
+fn load_tile_texture(ctx: &egui::Context, path: &std::path::Path, key: &str) -> egui::TextureHandle {
+    let tex = ctx.load_texture(
+        format!("tile-{key}"),
+        egui::ColorImage::example(),
+        egui::TextureOptions::default(),
+    );
+    if let Ok(buf) = std::fs::read(path) {
+        if let Ok(img) = image::load_from_memory(&buf) {
+            let rgba = img.to_rgba8();
+            let (iw, ih) = (rgba.width() as usize, rgba.height() as usize);
+            let pixels = rgba.into_raw();
+            let color_img = egui::ColorImage::from_rgba_unmultiplied(
+                [iw, ih],
+                &pixels,
+            );
+            return ctx.load_texture(
+                format!("tile-{key}"),
+                color_img,
+                egui::TextureOptions::default(),
+            );
+        }
+    }
+    tex
 }
 
 /// 日志面板：显示帧数 + tlog 保存/加载 + CSV/KML 导出

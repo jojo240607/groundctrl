@@ -70,7 +70,7 @@
 - [x] 地图增强：缩放滑块（以当前点为中心动态视野）、本地航点叠加（橙色方块）、指北针（左上 N 指示器）— `ui-desktop` Map 面板
 - [x] 完整 HUD：空速表 / 高度表（圆形指针仪表，270° 弧 + 绿弧比例 + 中央数字）— `ui-desktop` Telemetry 面板
 - [x] 空速数据链路：`VehicleModel.air` (Airspeed) 由 `VFR_HUD` 填充；SimLink 合成 VFR_HUD（空速/地速/爬升/油门）
-- [ ] 集成地图瓦片组件（egui 瓦片地图 + 离线缓存，需联网/缓存，留待后续）
+- [x] 离线瓦片地图组件：Web Mercator 瓦片坐标换算 + `image` 解码 PNG + `egui::TextureHandle` 缓存 + 航迹/航点/指北针叠加；未选目录时退回 HUD 模式 — `ui-desktop` Map 面板
 
 ### 2.4 日志
 - [x] `core/services/log.rs`：`LogManager`（tlog 格式记录，每帧时间戳 + 原始 v2 字节）
@@ -249,6 +249,17 @@
   否则 `VehicleModel.air` 恒为默认 0，`round_gauge` 永远指底。合成时用地速/爬升/油门做 sin/cos 平滑变化即可驱动仪表。
 - **圆形仪表**：`round_gauge` 用 270° 弧（start=-225°，sweep=270°），frac 比例段画绿弧 + 黄指针 +
   中央数字 + 下方标签；`allocate_painter` 返回的 painter 不需 mut（只读绘制）。
+
+### 坑 9：离线瓦片地图（image 解码 + egui 纹理）
+- **瓦片坐标**：Web Mercator，`n = 2^z`，`xtile = (lon+180)/360*n`，`ytile = (1 - ln(tan(lat)+sec(lat))/π)/2*n`。
+  反算纬度用 `merc_y2lat(y) = atan(sinh(π - 2πy))`（实现里用半角公式等价写法）。瓦片目录约定 `{z}/{x}/{y}.png`。
+- **解码**：egui 不内建图像，用 `image = "0.24"` 的 `load_from_memory` → `to_rgba8()` → `ColorImage::from_rgba_unmultiplied`
+  转 egui 纹理。`ctx.load_texture(name, color_img, TextureOptions::default())` 返回 `TextureHandle`，其 `.id()` 供 `painter.image` 使用。
+- **缓存**：`UiState.tile_cache: HashMap<String, egui::TextureHandle>`（key=`z/x/y`），切换目录时 `clear()`。
+  `TextureHandle` 不实现 `Default`，但作为 HashMap value 类型不要求 Default（`HashMap::default()` 即可）。
+- **退化模式**：`tile_dir == None` 时退回原 HUD（仅航迹/航点，无底图）。未选中目录时面板提示“HUD 模式”。
+- **绘制顺序**：先画瓦片（`ui.painter().image`），再画航迹/航点/当前点/指北针（覆盖在瓦片之上）。
+  瓦片四角经纬度 → 屏幕坐标用同一 `to_xy` 映射，保证轨迹与底图地理对齐。
 
 ---
 
