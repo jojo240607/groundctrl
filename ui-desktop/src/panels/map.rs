@@ -4,14 +4,41 @@ use egui::{Align2, Color32, FontId, Painter, Pos2, Rect, Sense, Stroke, Ui, Vec2
 
 use crate::app::GroundControlApp;
 use crate::state::UiState;
+use groundctrl_core::vehicle::mission::Waypoint;
 use crate::widgets::tiles::{
     fetch_tile, lat2ytile, load_tile_texture, lon2xtile, merc_y2lat, tile_path,
 };
 
 pub fn map_panel(ui: &mut Ui, state: &mut UiState, app: &GroundControlApp) {
     ui.heading("地图 (在线/离线瓦片)");
+
+    // 机队选择：下拉列出所有在网飞机
+    let fleet: Vec<u8> = state.vehicles.keys().cloned().collect();
+    if !fleet.is_empty() {
+        ui.horizontal(|ui| {
+            let sel = state.selected_sys.unwrap_or(*fleet.last().unwrap_or(&0));
+            ui.label("飞机:");
+            egui::ComboBox::from_id_source("map_fleet_sel")
+                .selected_text(format!("SYS {}", sel))
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut state.selected_sys, Some(*fleet.last().unwrap_or(&0)), "最新 (自动)");
+                    for s in &fleet {
+                        ui.selectable_value(&mut state.selected_sys, Some(*s), format!("SYS {}", s));
+                    }
+                });
+        });
+    }
+
     ui.horizontal(|ui| {
         ui.checkbox(&mut state.online_tiles, "在线地图");
+        ui.checkbox(&mut state.map_click_add_wp, "点击地图添加航点");
+        if ui.button("放大").clicked() {
+            state.map_zoom = (state.map_zoom * 1.4).min(18.0);
+        }
+        if ui.button("缩小").clicked() {
+            state.map_zoom = (state.map_zoom / 1.4).max(2.0);
+        }
+        ui.label(format!("zoom {:.1}", state.map_zoom));
         ui.label("缩放:");
         ui.add(egui::Slider::new(&mut state.map_zoom, 2.0..=18.0).logarithmic(true));
         ui.label(format!("z={:.1}", state.map_zoom));
@@ -42,10 +69,16 @@ pub fn map_panel(ui: &mut Ui, state: &mut UiState, app: &GroundControlApp) {
         }
     });
     let ctx = ui.ctx().clone();
-    let (resp, painter) = ui.allocate_painter(ui.available_size(), Sense::hover());
+    let (resp, painter) = ui.allocate_painter(ui.available_size(), Sense::click());
     let rect = resp.rect;
 
-    if state.trail.is_empty() {
+    let trail = state
+        .selected_sys
+        .and_then(|s| state.trails.get(&s).cloned())
+        .or_else(|| state.trails.values().next().cloned())
+        .unwrap_or_default();
+
+    if trail.is_empty() {
         painter.text(
             rect.center(),
             Align2::CENTER_CENTER,
@@ -57,7 +90,7 @@ pub fn map_panel(ui: &mut Ui, state: &mut UiState, app: &GroundControlApp) {
     }
 
     // 以当前位置为视图中心；zoom 越大视野越窄
-    let cur = *state.trail.last().unwrap();
+    let cur = *trail.last().unwrap();
     let half_span = (1.0 / (state.map_zoom * state.map_zoom)) + 0.0008;
     let min_lat = cur.0 - half_span;
     let max_lat = cur.0 + half_span;
@@ -75,6 +108,19 @@ pub fn map_panel(ui: &mut Ui, state: &mut UiState, app: &GroundControlApp) {
         let y = pad + ((max_lat - la) / lat_span) * h;
         Pos2::new(rect.min.x + x as f32, rect.min.y + y as f32)
     };
+
+    // 点击地图添加航点（反算到经纬度）
+    if state.map_click_add_wp && resp.clicked() {
+        if let Some(ptr) = resp.hover_pos() {
+            let local_x = (ptr.x - rect.min.x - pad as f32) as f64;
+            let local_y = (ptr.y - rect.min.y - pad as f32) as f64;
+            let lo = min_lon + (local_x / w) * lon_span;
+            let la = max_lat - (local_y / h) * lat_span;
+            if la > -90.0 && la < 90.0 {
+                state.mission.push(Waypoint::nav(la, lo, state.wp_alt));
+            }
+        }
+    }
 
     // 瓦片底图：优先用户目录，否则默认在线缓存目录（开箱即用）
     if let Some(root) = state.tile_root() {
@@ -139,7 +185,7 @@ pub fn map_panel(ui: &mut Ui, state: &mut UiState, app: &GroundControlApp) {
         }
     }
 
-    draw_overlays(&painter, &rect, &to_xy, &state.trail, &state.mission);
+    draw_overlays(&painter, &rect, &to_xy, &trail, &state.mission);
 }
 
 /// 航迹线、航点、当前点、指北针叠加

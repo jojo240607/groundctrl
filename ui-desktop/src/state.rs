@@ -11,8 +11,12 @@ use groundctrl_core::vehicle::VehicleModel;
 /// UI 共享状态
 #[derive(Default)]
 pub struct UiState {
-    /// 当前遥测快照（最新一架飞机）
+    /// 当前选中飞机的遥测快照（最新一帧）
     pub vehicle: VehicleModel,
+    /// 机队中所有飞机（按 system_id 聚合）
+    pub vehicles: HashMap<u8, VehicleModel>,
+    /// 当前选中查看的飞机 system_id（None = 自动选最新）
+    pub selected_sys: Option<u8>,
     pub log: Vec<String>,
     pub link_status: String,
     /// 当前活动链路名称（None = 未连接）
@@ -31,8 +35,8 @@ pub struct UiState {
     pub params_expected: u16,
     /// 告警（累积，带时间戳）
     pub alarms: Vec<(u64, Alarm)>,
-    /// GPS 轨迹历史（经纬度）
-    pub trail: Vec<(f64, f64)>,
+    /// GPS 轨迹历史（按 system_id 分别记录经纬度）
+    pub trails: HashMap<u8, Vec<(f64, f64)>>,
     /// 日志帧数
     pub log_frames: usize,
     /// 本地航点编辑
@@ -42,6 +46,8 @@ pub struct UiState {
     pub wp_alt: f32,
     /// 地图缩放级别（越大越近）
     pub map_zoom: f64,
+    /// 地图点击添加航点模式
+    pub map_click_add_wp: bool,
     /// 用户指定的离线瓦片根目录（{z}/{x}/{y}.png）。None = 用默认在线缓存目录
     pub tile_dir: Option<PathBuf>,
     /// 是否启用在线瓦片下载
@@ -64,6 +70,15 @@ impl UiState {
             Some(d.clone())
         } else {
             crate::widgets::tiles::default_tile_cache_dir()
+        }
+    }
+
+    /// 当前选中飞机的 GPS 轨迹（按 selected_sys；未指定则取任意一架）。
+    pub fn active_trail(&self) -> Vec<(f64, f64)> {
+        if let Some(s) = self.selected_sys.and_then(|s| self.trails.get(&s)) {
+            s.clone()
+        } else {
+            self.trails.values().next().cloned().unwrap_or_default()
         }
     }
 }

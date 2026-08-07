@@ -9,6 +9,8 @@ pub enum TabKind {
     Mission,
     Map,
     Log,
+    Alarms,
+    Settings,
 }
 
 /// 链路连接种类

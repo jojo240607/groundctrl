@@ -27,7 +27,7 @@ impl eframe::App for GroundControlApp {
                 ui.label(format!("link: {}", state.link_status));
             });
             // 告警状态条
-            alarm_bar(ui, &state.alarms);
+            alarm_bar(ui, &state);
         });
 
         egui::SidePanel::left("config").show(ctx, |ui| {
@@ -43,6 +43,8 @@ impl eframe::App for GroundControlApp {
                     (TabKind::Mission, "航点"),
                     (TabKind::Map, "地图"),
                     (TabKind::Log, "日志"),
+                    (TabKind::Alarms, "告警"),
+                    (TabKind::Settings, "设置"),
                 ] {
                     if ui.selectable_label(state.tab == tk, label).clicked() {
                         state.tab = tk;
@@ -59,6 +61,8 @@ impl eframe::App for GroundControlApp {
                 TabKind::Mission => panels::mission::mission_panel(ui, &mut state, self),
                 TabKind::Map => panels::map::map_panel(ui, &mut state, self),
                 TabKind::Log => panels::log::log_panel(ui, &mut state, self),
+                TabKind::Alarms => panels::alarms::alarms_panel(ui, &mut state, self),
+                TabKind::Settings => panels::settings::settings_panel(ui, &mut state, self),
             }
         });
 

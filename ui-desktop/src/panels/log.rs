@@ -117,7 +117,8 @@ fn export_csv(state: &mut UiState, app: &GroundControlApp) {
             let path = path.path().to_path_buf();
             let (csv, n) = {
                 let s = st.lock().unwrap();
-                (export_track_csv(&s.trail), s.trail.len())
+                let tr = s.active_trail();
+                (export_track_csv(&tr), tr.len())
             };
             let res = std::fs::write(&path, csv);
             if let Ok(mut s) = st.lock() {
@@ -145,7 +146,8 @@ fn export_kml(state: &mut UiState, app: &GroundControlApp) {
             let path = path.path().to_path_buf();
             let (kml, n) = {
                 let s = st.lock().unwrap();
-                (export_track_kml(&s.trail, &s.mission), s.trail.len())
+                let tr = s.active_trail();
+                (export_track_kml(&tr, &s.mission), tr.len())
             };
             let res = std::fs::write(&path, kml);
             if let Ok(mut s) = st.lock() {
