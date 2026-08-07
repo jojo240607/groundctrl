@@ -5,7 +5,6 @@
 
 use tokio::sync::broadcast;
 
-use ::mavlink;
 use crate::mlink;
 
 /// 总线中流转的高层事件
@@ -19,6 +18,18 @@ pub enum BusEvent {
     },
     /// 链路状态变化
     LinkState { link: String, open: bool },
+    /// 参数缓存变化（拉取进度或新值）
+    Params {
+        link: String,
+        complete: bool,
+        received: u16,
+        expected: u16,
+        entries: Vec<crate::vehicle::params::ParamEntry>,
+    },
+    /// 告警事件（每次新触发的告警）
+    Alarm { link: String, alarm: crate::services::alarms::Alarm },
+    /// 日志：一帧已记录的 tlog 字节
+    LogFrame { link: String, ts_ms: u64, bytes: Vec<u8> },
 }
 
 /// 消息总线封装

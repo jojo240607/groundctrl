@@ -1,8 +1,10 @@
 //! 飞行器状态模型（与平台无关）
 
+pub mod params;
+pub mod mission;
+
 use serde::Serialize;
 
-use ::mavlink;
 use crate::mlink;
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -27,7 +29,8 @@ pub struct GpsPos {
 pub struct Battery {
     pub voltage: f32,        // V
     pub current: f32,        // A
-    pub remaining_pct: i8,   // %
+    /// 剩余电量百分比（None = 未知 / 飞控未上报）
+    pub remaining_pct: Option<i8>,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -88,7 +91,7 @@ impl VehicleModel {
             mlink::MavMessage::SYS_STATUS(d) => {
                 self.battery.voltage = d.voltage_battery as f32 / 1000.0;
                 self.battery.current = d.current_battery as f32 / 100.0;
-                self.battery.remaining_pct = d.battery_remaining;
+                self.battery.remaining_pct = Some(d.battery_remaining);
             }
             mlink::MavMessage::GPS_RAW_INT(d) => {
                 self.gps.lat = d.lat as f64 / 1e7;

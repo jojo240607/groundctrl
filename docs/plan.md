@@ -54,32 +54,34 @@
 **目标**：参数、航点、地图 HUD、日志回放。
 
 ### 2.1 参数管理
-- [ ] `core/vehicle/params.rs`：`ParamManager`（读取/缓存/写回）
-- [ ] 参数列表 UI（表格、筛选、读/写、导入导出文件）
-- [ ] 参数变更确认与失败回执
+- [x] `core/vehicle/params.rs`：`ParamManager`（读取/缓存/写回）— PARAM_REQUEST_LIST/READ/SET 协议封装
+- [x] 参数列表 UI（表格、重新请求、写回）— `ui-desktop` Params 面板
+- [x] 参数变更乐观更新 + 飞控回执校正
 
 ### 2.2 航点规划
-- [ ] `core/vehicle/mission.rs`：`MissionPlanner`（航点增删改、上传/下载、FENCE、RALLY）
-- [ ] 航点编辑器 UI（列表 + 地图标点）
-- [ ] 上传/下载进度与校验
+- [x] `core/vehicle/mission.rs`：`MissionPlanner`（航点增删改、上传/下载握手、FENCE/RALLY 预留）
+- [x] 航点编辑器 UI（列表 + 经纬度/高度输入 + 上传）— `ui-desktop` Mission 面板
+- [x] 上传进度（MISSION_COUNT + 逐条 ITEM_INT）
 
 ### 2.3 地图与 HUD
-- [ ] 集成地图组件（egui 瓦片地图 + 离线缓存）
-- [ ] 飞机位置/航迹/航点叠加显示
-- [ ] 完整 HUD：姿态仪、空速/高度、电池、油门、GPS 卫星数
+- [x] 简化地图 HUD（离线，无瓦片）：以当前位置为中心绘制航迹线 + 当前点 — `ui-desktop` Map 面板
+- [x] 飞机位置/航迹叠加显示（GPS 轨迹历史缓存于 UiState.trail）
+- [ ] 完整 HUD：姿态仪、空速/高度、电池、油门、GPS 卫星数（基础遥测已显示，姿态仪/空速表待做）
+- [ ] 集成地图瓦片组件（egui 瓦片地图 + 离线缓存，需联网/缓存，留待后续）
 
 ### 2.4 日志
-- [ ] `core/services/log.rs`：`LogManager`（tlog/bin 记录）
-- [ ] 日志回放器（加载日志 → 驱动 `VehicleModel` 回放）
-- [ ] 导出 KML / CSV
+- [x] `core/services/log.rs`：`LogManager`（tlog 格式记录，每帧时间戳 + 原始 v2 字节）
+- [x] 日志回放器（from_tlog 解码 → 驱动回调；已端到端测试 round-trip）
+- [x] 导出 tlog 文件 / 从文件载入
 
 ### 2.5 告警监控
-- [ ] `core/services/alarms.rs`：`FlightMonitor`（低电量、失控、围栏越界）
-- [ ] 告警 UI 弹窗/状态条
+- [x] `core/services/alarms.rs`：`FlightMonitor`（低电量 / 失联 / 围栏越界，去重）
+- [x] 告警 UI 状态条（顶部，按等级红/黄着色）— `ui-desktop` alarm_bar
 
 ### 2.6 验证
-- [ ] SITL 全流程：连模拟飞控，读参数、传航点、飞行监控、录日志、回放
-- [ ] 三端编译与基础交互测试
+- [x] SimLink 全流程：连模拟飞控，读参数（5 示例参数集满）、传航点（MISSION_COUNT+ITEM）、飞行监控（电量/围栏单元覆盖）、录日志（tlog round-trip）、回放 — 见 `core/tests/e2e_simlink.rs`
+- [x] 全 workspace 编译 + 7 测试通过
+- [ ] 实连飞控（串口/UDP）参数/航点/日志回放的真机验证 — 待真机/SITL 环境
 
 **Phase 2 交付**：功能完整的桌面地面站。
 
@@ -187,6 +189,34 @@
   并会让 `common::MavMessage` 变成泛型 `MavMessage<M, V>`（会触发本记录的坑 1 类错误）。
 - 早期 `core/tests/probe.rs` 用 `mavlink::ardupilotmega::MavMessage` 已失效（无该 feature），
   已替换为仅依赖 `common` 的端到端验证测试。
+
+### 坑 4：mavlink `common` 实际字段类型与文档直觉不同
+- **PARAM_VALUE_DATA**：`param_id` 是 `[u8; 16]`（**不是** `[i8; 16]`），
+  `param_count`/`param_index` 是 `u16`（**不是** `i16`）。早期想当然写成 i8/i16 数组导致 E0308 类型不匹配。
+- **MISSION 系列结构没有 `mission_type` 字段**（至少 0.11.x 的 `MISSION_ITEM_INT_DATA` /
+  `MISSION_REQUEST_LIST_DATA` / `MISSION_CLEAR_ALL_DATA` / `MISSION_COUNT_DATA` 均无此字段）。
+  误加该字段会报“struct has no field `mission_type`”。需要删除该字段（或改用新版 dialect）。
+- **修复**：直接用 `crate::vehicle::params::string_to_cstr`（返回 `[u8;16]`）构造 param_id；
+  Mission 构造器仅填协议实际存在的字段。
+
+### 坑 5：SimLink 用绝对 Unix 时间戳做电量衰减 → i8 溢出 + 告警误触发
+- **现象**：Phase 2 联调时 `FlightMonitor` 在早期帧就报 `BATT_CRIT`（Critical 低电量），
+  尽管 SimLink 初始电量设 80%。
+- **根因 1**：`SimLink` 用 `SystemTime::now().as_secs_f64()`（绝对 Unix 秒，~1.7e9）直接
+  做 `80 - (t as i32 / 2)`，`as i32` 虽不溢出但该值很大、取模后落在极低区间 → 电量被算成 ≤15 → 误报。
+- **根因 2（更隐蔽）**：`VehicleModel::Battery.remaining_pct` 原本是 `i8`，`Default` 派生为 **0**。
+  `FlightMonitor` 在收到第一帧真实 `SYS_STATUS` 之前先对默认 `Battery{remaining_pct:0}` 调用了
+  `evaluate`，`0 <= critical(15)` 直接误触发并把 `"BATT_CRIT"` 插入活跃集合，污染了后续事件。
+- **修复**：
+  1. SimLink 记录 `start` 时刻，电量衰减改用 `(elapsed_sec as i32 / 2) % 80` 相对运行秒数，限制在 [5,80]。
+  2. `Battery.remaining_pct` 改为 `Option<i8>`（默认 `None`=未知），`FlightMonitor` 用
+     `if let Some(rem) = ...` 判断，未知时跳过且不报低电量。从根上消除“默认值 0 被当成真实 0%”。
+
+### 坑 6：BusEvent 中途断言 complete 导致测试误 FAIL
+- **现象**：`param_pull_over_simlink` 测试每收到一个 `Params` 事件就 `assert!(complete)`，
+  而 SimLink 回放 5 个 PARAM_VALUE，前 4 个 `received<5` 时 `complete=false` → 测试 FAIL。
+- **修复**：测试只取**最后一次** `Params` 事件（received 最大）的 `complete` 再断言，
+  或汇总所有事件后判断最终是否集满。参数拉取本身是正确逐步收敛的。
 
 ---
 
