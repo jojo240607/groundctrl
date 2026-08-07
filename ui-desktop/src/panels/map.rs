@@ -145,7 +145,7 @@ pub fn map_panel(ui: &mut Ui, state: &mut UiState, app: &GroundControlApp) {
                 }
             }
         }
-        if resp.drag_released() {
+        if resp.dragged_stopped() {
             state.dragging_wp = None;
         }
     }

@@ -290,6 +290,10 @@ impl TelemetryHub {
         }
         Ok(())
     }
+    /// 运行时更新告警监控阈值（用户在设置面板编辑告警规则后调用）
+    pub async fn set_monitor_config(&self, cfg: crate::services::alarms::MonitorConfig) {
+        self.monitor.lock().await.set_config(cfg);
+    }
 }
 
 impl Default for TelemetryHub {

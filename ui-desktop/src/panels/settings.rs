@@ -85,6 +85,65 @@ pub fn settings_panel(ui: &mut Ui, state: &mut UiState, app: &GroundControlApp) 
     }
 
     ui.separator();
+    ui.collapsing("告警规则（电量 / 地理围栏）", |ui| {
+        let mut cfg = state.monitor_cfg.clone();
+        let mut changed = false;
+
+        ui.horizontal(|ui| {
+            ui.label("电量预警 % (<)");
+            changed |= ui
+                .add(egui::DragValue::new(&mut cfg.battery_warn_pct).clamp_range(5..=95))
+                .changed();
+            ui.label("电量严重 % (<)");
+            changed |= ui
+                .add(egui::DragValue::new(&mut cfg.battery_critical_pct).clamp_range(1..=90))
+                .changed();
+        });
+
+        ui.horizontal(|ui| {
+            ui.label("围栏半径 (m)");
+            changed |= ui
+                .add(egui::DragValue::new(&mut cfg.fence_radius_m).clamp_range(10.0..=100000.0))
+                .changed();
+        });
+
+        ui.horizontal(|ui| {
+            ui.label("围栏中心 纬度");
+            changed |= ui
+                .add(egui::DragValue::new(&mut cfg.fence_lat).speed(0.0001))
+                .changed();
+            ui.label("经度");
+            changed |= ui
+                .add(egui::DragValue::new(&mut cfg.fence_lon).speed(0.0001))
+                .changed();
+        });
+
+        ui.horizontal(|ui| {
+            if ui.button("恢复默认阈值").clicked() {
+                cfg = groundctrl_core::services::alarms::MonitorConfig::default();
+                changed = true;
+            }
+            if changed {
+                ui.label(
+                    egui::RichText::new("● 已修改，点「应用告警规则」生效")
+                        .color(egui::Color32::YELLOW),
+                );
+            }
+        });
+
+        if ui.button("应用告警规则").clicked() {
+            state.monitor_cfg = cfg.clone();
+            let rt = app.rt.handle().clone();
+            rt.spawn({
+                let hub = app.hub.clone();
+                async move {
+                    hub.set_monitor_config(cfg).await;
+                }
+            });
+        }
+    });
+
+    ui.separator();
     ui.label(format!("当前标签页: {:?}", state.tab));
     // 提供快速跳转到其他面板
     ui.horizontal_wrapped(|ui| {

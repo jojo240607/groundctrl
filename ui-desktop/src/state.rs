@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-use groundctrl_core::services::alarms::Alarm;
+use groundctrl_core::services::alarms::{Alarm, MonitorConfig};
 use groundctrl_core::vehicle::mission::Waypoint;
 use groundctrl_core::vehicle::params::ParamEntry;
 use groundctrl_core::vehicle::VehicleModel;
@@ -69,6 +69,8 @@ pub struct UiState {
     pub trend_selected: Vec<String>,
     /// 地图中正在拖拽的航点索引
     pub dragging_wp: Option<usize>,
+    /// 告警监控阈值（用户在设置面板编辑，保存到 core 的 FlightMonitor）
+    pub monitor_cfg: MonitorConfig,
 }
 
 impl UiState {

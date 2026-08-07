@@ -4,6 +4,7 @@
 //! 告警状态在内部去重，避免同一告警每帧重复触发。
 
 use crate::vehicle::VehicleModel;
+use serde::{Deserialize, Serialize};
 
 /// 告警等级
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,7 +23,7 @@ pub struct Alarm {
 }
 
 /// 监控阈值配置
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MonitorConfig {
     /// 电量低于该百分比触发告警
     pub battery_warn_pct: i8,
@@ -64,6 +65,11 @@ impl FlightMonitor {
 
     pub fn with_defaults() -> Self {
         Self::new(MonitorConfig::default())
+    }
+
+    /// 运行时更新监控阈值（用户编辑告警规则后调用）
+    pub fn set_config(&mut self, cfg: MonitorConfig) {
+        self.cfg = cfg;
     }
 
     /// 评估一次飞机状态，返回本次「新触发」的告警（已激活的不重复返回）
