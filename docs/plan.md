@@ -105,6 +105,8 @@
 - [x] 增量编译验证：通过，无新增 warning（仅 core 预存 3 warning + map.rs 一处预存 drag_released 弃用提醒）
 - [x] 告警规则编辑：设置面板新增「告警规则」折叠区，编辑电量预警/严重阈值、围栏半径/中心；点「应用告警规则」经 `TelemetryHub::set_monitor_config` 实时下发到 `FlightMonitor`
 - [x] 趋势采样持久化：AppSettings 新增 `trend_selected` / `trend_enabled`；启动从设置恢复，参数面板「在趋势图中显示」与趋势面板勾选/增删/清空均即时 `save_settings` 落盘
+- [x] 端到端运行验证（路线 D）：core 7/7 e2e 全绿；新增无 GUI 闭环测试 `app::subscribe::tests`（先订阅再连接，捕获 LinkState），断言「链路→机队→参数→趋势采样→链路态」真实跑通，`full_loop_trend_and_alarm` / `trend_disabled_produces_no_samples` 均 PASS
+- [x] 增量编译验证：全工程 `cargo test` 通过，仅 core 预存 3 warning
 
 **Phase 2 交付**：功能完整的桌面地面站。
 
