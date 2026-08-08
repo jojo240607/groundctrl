@@ -168,3 +168,24 @@ pub async fn upload_mission(
         .await
         .map_err(|e| e.to_string())
 }
+
+/// 下载航点：返回地面站侧缓存的航点（最近一次编辑/上传的航点）。
+#[tauri::command]
+pub async fn download_mission(
+    state: State<'_, AppState>,
+    _sys: u8,
+    _comp: u8,
+) -> Result<Vec<WaypointItem>, String> {
+    let wps = state.hub.get_mission().await;
+    Ok(wps
+        .into_iter()
+        .map(|wp| WaypointItem {
+            seq: wp.seq,
+            command: wp.command,
+            x: wp.lat,
+            y: wp.lon,
+            z: wp.alt,
+            autocontinue: wp.autocontinue != 0,
+        })
+        .collect())
+}

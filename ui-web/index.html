@@ -60,7 +60,17 @@
 
       <section class="center">
         <div class="card map-card">
-          <h3>地图 / 位置</h3>
+          <h3>
+            地图 / 位置
+            <span class="hint">左键空白新增航点 · 拖拽航点移动 · 右键删除 · 滚轮缩放 · 拖拽平移</span>
+          </h3>
+          <div id="mapbar" class="mapbar">
+            <span id="map-readout" class="muted">坐标：--</span>
+            <span class="spacer"></span>
+            <button id="btn-wp-clear" class="mini">清空航点</button>
+            <button id="btn-wp-download" class="mini">下载航点</button>
+            <button id="btn-mission-upload" class="mini">上传航点</button>
+          </div>
           <canvas id="map" width="760" height="420"></canvas>
         </div>
         <div class="row2">
@@ -73,7 +83,8 @@
             <canvas id="gauges" width="240" height="240"></canvas>
           </div>
           <div class="card trend-card">
-            <h3>趋势</h3>
+            <h3>趋势 / 通道</h3>
+            <div id="trend-channels" class="trend-channels"></div>
             <canvas id="trend" width="760" height="200"></canvas>
           </div>
         </div>
@@ -87,9 +98,15 @@
           <div id="params" class="params"><div class="muted">未拉取</div></div>
         </section>
         <section class="card">
-          <h3>航点</h3>
+          <h3>
+            航点
+            <span class="hint">点击地图新增 · 列表可编辑</span>
+          </h3>
           <div id="mission" class="mission"><div class="muted">无航点</div></div>
-          <div class="row btns"><button id="btn-upload-mission">上传航点</button></div>
+          <div class="row btns">
+            <button id="btn-upload-mission">上传</button>
+            <button id="btn-wp-clear2" class="ghost">清空</button>
+          </div>
         </section>
       </aside>
     </main>

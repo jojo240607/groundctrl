@@ -75,6 +75,23 @@ impl Waypoint {
             z: self.alt,
         })
     }
+
+    /// 从飞控回传的 MISSION_ITEM_INT_DATA 解析出航点
+    pub fn from_item_int(d: &mav::MISSION_ITEM_INT_DATA) -> Self {
+        Self {
+            seq: d.seq,
+            frame: d.frame as u8,
+            command: d.command as u16,
+            param1: d.param1,
+            param2: d.param2,
+            param3: d.param3,
+            param4: d.param4,
+            lat: d.x as f64 / 1e7,
+            lon: d.y as f64 / 1e7,
+            alt: d.z,
+            autocontinue: d.autocontinue,
+        }
+    }
 }
 
 /// 航点管理器
@@ -167,6 +184,25 @@ impl MissionPlanner {
             target_system: target_sys,
             target_component: target_comp,
         })
+    }
+
+    /// 构造请求飞控回传单条航点的消息（按 seq）
+    pub fn make_request(target_sys: u8, target_comp: u8, seq: u16) -> mav::MavMessage {
+        mav::MavMessage::MISSION_REQUEST(mav::MISSION_REQUEST_DATA {
+            target_system: target_sys,
+            target_component: target_comp,
+            seq,
+        })
+    }
+
+    /// 从飞控回传的整型航点序列构造
+    pub fn from_int_items(items: &[mav::MISSION_ITEM_INT_DATA]) -> Self {
+        let mut planner = Self::new();
+        for d in items {
+            planner.items.push(Waypoint::from_item_int(d));
+        }
+        planner.renumber();
+        planner
     }
 
     /// 构造清空飞控航点的消息

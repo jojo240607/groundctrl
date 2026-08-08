@@ -106,7 +106,31 @@ button:active { transform: translateY(1px); }
 .param-row .pname { color: var(--text); }
 .param-row .pval { color: var(--accent); font-variant-numeric: tabular-nums; }
 
-.mission { max-height: 160px; overflow-y: auto; font-size: 12px; margin-bottom: 6px; }
-.wp-row { padding: 2px 0; border-bottom: 1px solid var(--line); }
+.mission { max-height: 200px; overflow-y: auto; font-size: 12px; margin-bottom: 6px; }
+.wp-row { display: flex; align-items: center; gap: 6px; padding: 4px 2px; border-bottom: 1px solid var(--line); }
+.wp-row.sel { background: rgba(47,129,247,0.12); border-radius: 4px; }
+.wp-row .wp-idx { width: 20px; color: var(--accent); font-weight: 600; flex: none; }
+.wp-row .wp-coord { flex: 1; color: var(--muted); font-variant-numeric: tabular-nums; cursor: pointer; }
+.wp-row .wp-coord input { width: 64px; background: var(--panel2); border: 1px solid var(--line); color: var(--text); border-radius: 4px; padding: 2px 4px; font-size: 11px; }
+.wp-row .wp-z { width: 48px; background: var(--panel2); border: 1px solid var(--line); color: var(--text); border-radius: 4px; padding: 2px 4px; font-size: 11px; }
+.wp-row .wp-act { display: flex; gap: 2px; flex: none; }
+.wp-row .wp-act button { padding: 2px 6px; font-size: 11px; background: var(--panel2); border: 1px solid var(--line); color: var(--text); }
+.wp-row .wp-act button:hover { filter: brightness(1.2); }
+.wp-row .wp-act button.del { color: var(--crit); }
+
+.card h3 { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.card h3 .hint { color: var(--muted); font-weight: 400; font-size: 11px; }
+
+.mapbar { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.mapbar .spacer { flex: 1; }
+.mapbar .mini { padding: 3px 10px; font-size: 11px; background: var(--panel2); border: 1px solid var(--line); }
+.mapbar .mini:hover { filter: brightness(1.2); }
+#map-readout { font-variant-numeric: tabular-nums; }
+
+.trend-channels { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.trend-channels label { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); cursor: pointer; }
+.trend-channels input { accent-color: var(--accent); }
+
+button.ghost { background: var(--panel2); border: 1px solid var(--line); color: var(--text); }
 
 .muted { color: var(--muted); font-size: 12px; }

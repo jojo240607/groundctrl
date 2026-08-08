@@ -1,10 +1,10 @@
 // 地面站 Web 前端（Tauri v2）。
 // 通过 window.__TAURI__.core.invoke 调用后端命令，通过 listen 接收遥测事件。
 
-import { drawMap } from './map.js';
+import { drawMap, screenToLatLon, hitWaypoint, getMapView } from './map.js';
 import { drawAttitude } from './attitude.js';
 import { drawGauges } from './gauges.js';
-import { drawTrend } from './trend.js';
+import { drawTrend, trendChannels } from './trend.js';
 
 const { invoke, listen } = window.__TAURI__;
 
@@ -15,23 +15,27 @@ const state = {
   alarms: [],
   params: new Map(),
   mission: [],
-  trend: { t: [], alt: [], spd: [], batt: [] },
+  mapCenter: { lat: 31.0, lon: 121.0 },
+  trail: [],
+  trend: { t: [], alt: [], spd: [], batt: [], air: [] },
+  visibleChannels: ['alt', 'spd', 'batt'],
+  selectedWp: -1,
 };
 
 // ---- 工具 ----
 const $ = (id) => document.getElementById(id);
 const fmt = (v, d = 1) => (v == null || isNaN(v)) ? '--' : Number(v).toFixed(d);
 
+// 地图交互状态
+const mapMouse = { x: 0, y: 0, inside: false };
+let mapDrag = null;      // 平移：{sx,sy,ox,oy}
+let wpDrag = null;       // 拖拽航点：{idx}
+
 // ---- 后端调用 ----
 async function getSettings() {
   try {
     const s = await invoke('get_settings');
     $('conn-bind').value = s.default_url.includes(':') ? s.default_url : '0.0.0.0:14551';
-    $('cfg-warn').value = 30;
-    $('cfg-crit').value = 15;
-    $('cfg-radius').value = 1000;
-    $('cfg-lat').value = 31;
-    $('cfg-lon').value = 121;
     await refreshCfg();
   } catch (e) { console.warn('get_settings', e); }
 }
@@ -106,6 +110,26 @@ async function uploadMission() {
   });
 }
 
+async function downloadMission() {
+  const v = selectedVehicle();
+  if (!v) { alert('尚未连接'); return; }
+  try {
+    const m = await invoke('download_mission', { sys: v.sysid, comp: v.compid });
+    if (m && m.items && m.items.length) {
+      state.mission = m.items.map((it) => ({
+        command: it.command ?? 16, x: it.x, y: it.y, z: it.z,
+      }));
+      renderMission();
+      renderMap();
+    } else {
+      alert('飞行器无航点');
+    }
+  } catch (e) {
+    console.warn('download_mission', e);
+    alert('下载航点失败：' + e);
+  }
+}
+
 // ---- 状态栏 ----
 function setLink(text, ok) {
   const el = $('st-link');
@@ -158,8 +182,40 @@ function renderMission() {
   box.innerHTML = '';
   state.mission.forEach((w, i) => {
     const row = document.createElement('div');
-    row.className = 'wp-row';
-    row.textContent = `#${i} cmd=${w.command} (${fmt(w.x,5)}, ${fmt(w.y,5)}) ${fmt(w.z,1)}m`;
+    row.className = 'wp-row' + (i === state.selectedWp ? ' sel' : '');
+    row.innerHTML = `
+      <span class="wp-idx">${i}</span>
+      <span class="wp-coord" title="点击在地图上选中">
+        ${fmt(w.x, 5)}, ${fmt(w.y, 5)}
+      </span>
+      <input class="wp-z" type="number" title="高度(m)" value="${fmt(w.z, 0)}" />
+      <span class="wp-act">
+        <button class="up" title="上移">↑</button>
+        <button class="down" title="下移">↓</button>
+        <button class="del" title="删除">✕</button>
+      </span>`;
+    // 选中
+    row.querySelector('.wp-coord').addEventListener('click', () => {
+      state.selectedWp = i; renderMission(); renderMap();
+    });
+    // 高度编辑
+    row.querySelector('.wp-z').addEventListener('change', (e) => {
+      w.z = parseFloat(e.target.value) || 0;
+    });
+    // 上移
+    row.querySelector('.up').addEventListener('click', () => {
+      if (i > 0) { [state.mission[i - 1], state.mission[i]] = [state.mission[i], state.mission[i - 1]]; state.selectedWp = i - 1; renderMission(); renderMap(); }
+    });
+    // 下移
+    row.querySelector('.down').addEventListener('click', () => {
+      if (i < state.mission.length - 1) { [state.mission[i + 1], state.mission[i]] = [state.mission[i], state.mission[i + 1]]; state.selectedWp = i + 1; renderMission(); renderMap(); }
+    });
+    // 删除
+    row.querySelector('.del').addEventListener('click', () => {
+      state.mission.splice(i, 1);
+      if (state.selectedWp >= state.mission.length) state.selectedWp = state.mission.length - 1;
+      renderMission(); renderMap();
+    });
     box.appendChild(row);
   });
 }
@@ -168,11 +224,27 @@ function selectedVehicle() {
   return state.vehicles.find(v => v.sysid === state.selected) || state.vehicles[0] || null;
 }
 
+function mapCenterV() {
+  const v = selectedVehicle();
+  return v && v.lat ? { lat: v.lat, lon: v.lon } : state.mapCenter;
+}
+
 // ---- 事件监听 ----
 async function setupListeners() {
   await listen('fleet', (e) => {
+    const prev = state.vehicles;
     state.vehicles = e.payload.vehicles;
     state.selected = e.payload.selected || (state.vehicles[0] && state.vehicles[0].sysid) || 0;
+    // 记录航迹
+    const v = selectedVehicle();
+    if (v && v.lat) {
+      state.mapCenter = { lat: v.lat, lon: v.lon };
+      const last = state.trail[state.trail.length - 1];
+      if (!last || Math.hypot(last.lat - v.lat, last.lon - v.lon) > 1e-5) {
+        state.trail.push({ lat: v.lat, lon: v.lon });
+        if (state.trail.length > 300) state.trail.shift();
+      }
+    }
     updateStatusLine();
     pushTrend();
     renderAll();
@@ -202,18 +274,132 @@ function pushTrend() {
   tr.alt.push(v ? v.altRel ?? 0 : 0);
   tr.spd.push(v ? v.groundSpeed ?? 0 : 0);
   tr.batt.push(v ? v.battery ?? 0 : 0);
-  // 保留最近 600 点
+  tr.air.push(v ? v.airSpeed ?? 0 : 0);
   const MAX = 600;
-  if (tr.t.length > MAX) { tr.t.shift(); tr.alt.shift(); tr.spd.shift(); tr.batt.shift(); }
+  if (tr.t.length > MAX) { tr.t.shift(); tr.alt.shift(); tr.spd.shift(); tr.batt.shift(); tr.air.shift(); }
+}
+
+function renderMap() {
+  const v = selectedVehicle();
+  drawMap($('map'), state, v, { cursor: mapMouse, selectedWp: state.selectedWp });
+  // 坐标读数
+  const c = mapCenterV();
+  const span = 0.03 / getMapView().scale;
+  if (mapMouse.inside) {
+    const ll = screenToLatLon($('map'), mapMouse.x, mapMouse.y, c, span);
+    $('map-readout').textContent = `坐标：${ll.lat.toFixed(5)}, ${ll.lon.toFixed(5)}`;
+  } else {
+    $('map-readout').textContent = `中心：${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}`;
+  }
 }
 
 function renderAll() {
   updateStatusLine();
-  const v = selectedVehicle();
-  drawMap($('map'), state, v);
-  drawAttitude($('attitude'), v);
-  drawGauges($('gauges'), v);
-  drawTrend($('trend'), state.trend);
+  renderMap();
+  drawAttitude($('attitude'), selectedVehicle());
+  drawGauges($('gauges'), selectedVehicle());
+  drawTrend($('trend'), state.trend, state.visibleChannels);
+}
+
+// ---- 航点交互（地图）----
+function setupMapInteraction() {
+  const canvas = $('map');
+  const toLocal = (e) => {
+    const r = canvas.getBoundingClientRect();
+    return {
+      x: (e.clientX - r.left) * (canvas.width / r.width),
+      y: (e.clientY - r.top) * (canvas.height / r.height),
+    };
+  };
+
+  canvas.addEventListener('mousemove', (e) => {
+    const p = toLocal(e);
+    mapMouse.x = p.x; mapMouse.y = p.y; mapMouse.inside = true;
+    if (mapDrag) {
+      const view = getMapView();
+      view.ox = mapDrag.ox + (p.x - mapDrag.sx);
+      view.oy = mapDrag.oy + (p.y - mapDrag.sy);
+    } else if (wpDrag != null) {
+      const c = mapCenterV();
+      const span = 0.03 / getMapView().scale;
+      const ll = screenToLatLon(canvas, p.x, p.y, c, span);
+      state.mission[wpDrag] = { ...state.mission[wpDrag], x: ll.lat, y: ll.lon };
+      renderMission();
+    }
+    renderMap();
+  });
+
+  canvas.addEventListener('mouseleave', () => { mapMouse.inside = false; renderMap(); });
+
+  canvas.addEventListener('mousedown', (e) => {
+    const p = toLocal(e);
+    if (e.button === 2) return; // 右键交给 contextmenu
+    const c = mapCenterV();
+    const span = 0.03 / getMapView().scale;
+    const hit = hitWaypoint(canvas, state, p.x, p.y, c, span);
+    if (hit >= 0) {
+      wpDrag = hit; state.selectedWp = hit; renderMission();
+    } else {
+      const view = getMapView();
+      mapDrag = { sx: p.x, sy: p.y, ox: view.ox, oy: view.oy };
+    }
+  });
+
+  window.addEventListener('mouseup', () => { mapDrag = null; wpDrag = null; });
+
+  canvas.addEventListener('click', (e) => {
+    const p = toLocal(e);
+    const c = mapCenterV();
+    const span = 0.03 / getMapView().scale;
+    const hit = hitWaypoint(canvas, state, p.x, p.y, c, span);
+    if (hit >= 0) return; // 命中航点不算新增
+    const ll = screenToLatLon(canvas, p.x, p.y, c, span);
+    state.mission.push({ command: 16, x: ll.lat, y: ll.lon, z: 50 });
+    state.selectedWp = state.mission.length - 1;
+    renderMission(); renderMap();
+  });
+
+  canvas.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    const p = toLocal(e);
+    const c = mapCenterV();
+    const span = 0.03 / getMapView().scale;
+    const hit = hitWaypoint(canvas, state, p.x, p.y, c, span);
+    if (hit >= 0) {
+      state.mission.splice(hit, 1);
+      if (state.selectedWp >= state.mission.length) state.selectedWp = state.mission.length - 1;
+      renderMission(); renderMap();
+    }
+  });
+
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const view = getMapView();
+    const f = e.deltaY < 0 ? 1.1 : 0.9;
+    view.scale = Math.max(0.2, Math.min(8, view.scale * f));
+    renderMap();
+  }, { passive: false });
+}
+
+// ---- 遥测通道切换 ----
+function setupTrendChannels() {
+  const box = $('trend-channels');
+  box.innerHTML = '';
+  for (const c of trendChannels()) {
+    const id = 'ch-' + c.key;
+    const label = document.createElement('label');
+    label.innerHTML = `<input type="checkbox" id="${id}" ${state.visibleChannels.includes(c.key) ? 'checked' : ''}/>
+      <span style="color:${c.color}">${c.label}</span>`;
+    label.querySelector('input').addEventListener('change', (e) => {
+      if (e.target.checked) {
+        if (!state.visibleChannels.includes(c.key)) state.visibleChannels.push(c.key);
+      } else {
+        state.visibleChannels = state.visibleChannels.filter(k => k !== c.key);
+      }
+      drawTrend($('trend'), state.trend, state.visibleChannels);
+    });
+    box.appendChild(label);
+  }
 }
 
 // ---- 绑定 ----
@@ -223,34 +409,34 @@ function bindUi() {
   $('btn-cfg').addEventListener('click', applyCfg);
   $('btn-params').addEventListener('click', fetchParams);
   $('btn-upload-mission').addEventListener('click', uploadMission);
+  $('btn-mission-upload').addEventListener('click', uploadMission);
+  $('btn-wp-download').addEventListener('click', downloadMission);
+  $('btn-wp-clear').addEventListener('click', clearMission);
+  $('btn-wp-clear2').addEventListener('click', clearMission);
   $('param-filter').addEventListener('input', renderParams);
-  // 演示用：点击地图可添加航点（以地图中心为参考）
-  $('map').addEventListener('click', (ev) => {
-    const rect = ev.target.getBoundingClientRect();
-    const v = selectedVehicle();
-    const lat = v ? v.lat : 31.0;
-    const lon = v ? v.lon : 121.0;
-    const dx = (ev.clientX - rect.left) / rect.width - 0.5;
-    const dy = (ev.clientY - rect.top) / rect.height - 0.5;
-    state.mission.push({
-      command: 16,
-      x: lat - dy * 0.02,
-      y: lon + dx * 0.02,
-      z: 50,
-    });
-    renderMission();
-  });
+  setupMapInteraction();
+}
+
+function clearMission() {
+  state.mission = [];
+  state.selectedWp = -1;
+  renderMission();
+  renderMap();
 }
 
 // ---- 启动 ----
 async function main() {
   bindUi();
+  setupTrendChannels();
   await setupListeners();
   await getSettings();
-  // 初始渲染一帧
   renderAll();
-  // 若已连接（后端持久），主动拉一次机队
-  try { const f = await invoke('get_fleet'); state.vehicles = f.vehicles; state.selected = f.selected; renderAll(); } catch (e) {}
+  try {
+    const f = await invoke('get_fleet');
+    state.vehicles = f.vehicles;
+    state.selected = f.selected;
+    renderAll();
+  } catch (e) {}
 }
 
 main();

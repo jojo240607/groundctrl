@@ -34,6 +34,7 @@ ui-web/                  前端 (Vite, 零运行时框架)
 | `request_params` | `{sys, comp}` | `void` |
 | `set_param` | `{sys, comp, name, value}` | `void` |
 | `upload_mission` | `{sys, comp, items:[WaypointItem]}` | `void` |
+| `download_mission` | `{sys, comp}` | `[WaypointItem]`（向飞控发 MISSION_REQUEST_LIST 并逐条接收 MISSION_ITEM_INT，返回完整航点；超时返回已收到的部分） |
 
 ### 事件 (listen)
 | 事件 | 载荷 |

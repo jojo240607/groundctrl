@@ -4,6 +4,7 @@
 
 use std::sync::Arc;
 
+use ::mavlink::common as mav;
 use ::mavlink::MavHeader;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
@@ -14,6 +15,7 @@ use crate::mlink::MavlinkParser;
 use crate::proto::bus::{Bus, BusEvent};
 use crate::services::alarms::{Alarm, FlightMonitor};
 use crate::services::log::LogManager;
+use crate::vehicle::mission::MissionPlanner;
 use crate::vehicle::params::ParamManager;
 use crate::vehicle::VehicleModel;
 
@@ -36,6 +38,8 @@ pub struct TelemetryHub {
     monitor: Arc<Mutex<FlightMonitor>>,
     /// 飞行日志
     log: Arc<Mutex<LogManager>>,
+    /// 地面站侧的航点缓存（上传时写入，下载时返回）
+    mission: Mutex<MissionPlanner>,
 }
 
 impl Clone for TelemetryHub {
@@ -49,6 +53,7 @@ impl Clone for TelemetryHub {
             params: self.params.clone(),
             monitor: self.monitor.clone(),
             log: self.log.clone(),
+            mission: Mutex::new(MissionPlanner::new()),
         }
     }
 }
@@ -66,6 +71,7 @@ impl TelemetryHub {
             params: Arc::new(Mutex::new(std::collections::HashMap::new())),
             monitor: Arc::new(Mutex::new(FlightMonitor::with_defaults())),
             log: Arc::new(Mutex::new(LogManager::new())),
+            mission: Mutex::new(MissionPlanner::new()),
         }
     }
 
@@ -307,7 +313,122 @@ impl TelemetryHub {
                 self.send_msg(&link, &header, &item_msg).await?;
             }
         }
+        // 缓存到地面站侧，供 download_mission 返回
+        *self.mission.lock().await = crate::vehicle::mission::MissionPlanner::from_items(items);
         Ok(())
+    }
+
+    /// 下载航点：向飞控发 MISSION_REQUEST_LIST，逐条收 MISSION_ITEM_INT，返回完整航点。
+    ///
+    /// 协议握手：REQUEST_LIST -> (COUNT) -> 对每条 REQUEST(seq) -> (ITEM_INT(seq))，
+    /// 全部收齐后写入地面站侧缓存并返回。任何一步超时则返回已收到的部分（至少 0 条）。
+    pub async fn download_mission(
+        &self,
+        sys: u8,
+        comp: u8,
+    ) -> crate::error::Result<Vec<crate::vehicle::mission::Waypoint>> {
+        let link = match self.current_link().await {
+            Some(l) => l,
+            None => return Ok(Vec::new()),
+        };
+        let header = mlink::default_header();
+
+        // 订阅总线，独立接收飞控回传（不干扰 attach 任务的常规处理）
+        let mut rx = self.bus.subscribe();
+
+        // 1) 请求航点总数
+        let req_list = crate::vehicle::mission::MissionPlanner::make_request_list(sys, comp);
+        self.send_msg(&link, &header, &req_list).await?;
+
+        let count = match self.recv_mission_count(&mut rx, sys).await {
+            Some(c) => c,
+            None => return Ok(Vec::new()), // 超时：无航点或飞控无响应
+        };
+
+        // 2) 逐条请求并接收
+        let mut items: Vec<mav::MISSION_ITEM_INT_DATA> = Vec::with_capacity(count as usize);
+        for seq in 0..count {
+            let req = crate::vehicle::mission::MissionPlanner::make_request(sys, comp, seq);
+            self.send_msg(&link, &header, &req).await?;
+            if let Some(data) = self.recv_mission_item(&mut rx, sys, seq).await {
+                items.push(data);
+            } else {
+                break; // 该条超时，停止后续请求
+            }
+        }
+
+        let planner = crate::vehicle::mission::MissionPlanner::from_int_items(&items);
+        let wps = planner.items().to_vec();
+        *self.mission.lock().await = planner;
+        Ok(wps)
+    }
+
+    /// 等待 MISSION_COUNT（带 3s 超时），返回航点总数
+    async fn recv_mission_count(
+        &self,
+        rx: &mut tokio::sync::broadcast::Receiver<crate::proto::bus::BusEvent>,
+        sys: u8,
+    ) -> Option<u16> {
+        let deadline = tokio::time::Duration::from_secs(3);
+        match tokio::time::timeout(deadline, async {
+            loop {
+                match rx.recv().await {
+                    Ok(crate::proto::bus::BusEvent::Mavlink { header, msg, .. }) => {
+                        if header.system_id != sys {
+                            continue;
+                        }
+                        if let mav::MavMessage::MISSION_COUNT(d) = &msg {
+                            if d.target_system == sys {
+                                return Some(d.count);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        })
+        .await
+        {
+            Ok(v) => v,
+            Err(_) => None,
+        }
+    }
+
+    /// 等待指定 seq 的 MISSION_ITEM_INT（带 3s 超时）
+    async fn recv_mission_item(
+        &self,
+        rx: &mut tokio::sync::broadcast::Receiver<crate::proto::bus::BusEvent>,
+        sys: u8,
+        seq: u16,
+    ) -> Option<mav::MISSION_ITEM_INT_DATA> {
+        let deadline = tokio::time::Duration::from_secs(3);
+        match tokio::time::timeout(deadline, async {
+            loop {
+                match rx.recv().await {
+                    Ok(crate::proto::bus::BusEvent::Mavlink { header, msg, .. }) => {
+                        if header.system_id != sys {
+                            continue;
+                        }
+                        if let mav::MavMessage::MISSION_ITEM_INT(d) = &msg {
+                            if d.target_system == sys && d.seq == seq {
+                                return Some(d.clone());
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        })
+        .await
+        {
+            Ok(v) => v,
+            Err(_) => None,
+        }
+    }
+
+    /// 返回地面站侧缓存的航点（即最近一次编辑/上传、或下载的航点）。
+    pub async fn get_mission(&self) -> Vec<crate::vehicle::mission::Waypoint> {
+        self.mission.lock().await.items().to_vec()
     }
     /// 运行时更新告警监控阈值（用户在设置面板编辑告警规则后调用）
     pub async fn set_monitor_config(&self, cfg: crate::services::alarms::MonitorConfig) {

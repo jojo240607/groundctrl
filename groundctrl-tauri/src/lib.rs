@@ -32,6 +32,7 @@ pub fn run() {
             commands::request_params,
             commands::set_param,
             commands::upload_mission,
+            commands::download_mission,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
