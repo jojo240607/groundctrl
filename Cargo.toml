@@ -4,6 +4,7 @@ members = [
     "core",
     "ui-desktop",
     "tools",
+    "groundctrl-tauri",
 ]
 exclude = ["tmp_probe"]
 

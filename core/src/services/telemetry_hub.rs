@@ -18,6 +18,10 @@ use crate::vehicle::params::ParamManager;
 use crate::vehicle::VehicleModel;
 
 /// 遥测中枢句柄
+///
+/// 手动实现 `Clone`：`tokio::sync::Mutex` 不可 `Clone`，且 `active`/`current`
+/// 属于“运行态”句柄（活动任务 / 当前链路），克隆出的副本只用于订阅与查询，
+/// 不应抢占原句柄持有的链路，故克隆时重置为空 `Mutex`。
 pub struct TelemetryHub {
     bus: Bus,
     vehicles: Arc<Mutex<std::collections::HashMap<u8, VehicleModel>>>,
@@ -32,6 +36,21 @@ pub struct TelemetryHub {
     monitor: Arc<Mutex<FlightMonitor>>,
     /// 飞行日志
     log: Arc<Mutex<LogManager>>,
+}
+
+impl Clone for TelemetryHub {
+    fn clone(&self) -> Self {
+        Self {
+            bus: self.bus.clone(),
+            vehicles: self.vehicles.clone(),
+            telem_tx: self.telem_tx.clone(),
+            active: Mutex::new(None),
+            current: Mutex::new(None),
+            params: self.params.clone(),
+            monitor: self.monitor.clone(),
+            log: self.log.clone(),
+        }
+    }
 }
 
 impl TelemetryHub {
@@ -293,6 +312,11 @@ impl TelemetryHub {
     /// 运行时更新告警监控阈值（用户在设置面板编辑告警规则后调用）
     pub async fn set_monitor_config(&self, cfg: crate::services::alarms::MonitorConfig) {
         self.monitor.lock().await.set_config(cfg);
+    }
+
+    /// 读取当前告警规则配置。
+    pub async fn monitor_config(&self) -> crate::services::alarms::MonitorConfig {
+        self.monitor.lock().await.config().clone()
     }
 }
 

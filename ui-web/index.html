@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>地面站 GroundControl</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">地面站 <span class="sub">GroundControl</span></div>
+      <div id="statusline" class="statusline">
+        <span class="chip" id="st-link">链路：未连接</span>
+        <span class="chip" id="st-mode">模式：--</span>
+        <span class="chip" id="st-arm">状态：--</span>
+        <span class="chip" id="st-batt">电量：--</span>
+        <span class="chip" id="st-alt">高度：--</span>
+        <span class="chip" id="st-spd">地速：--</span>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="left">
+        <section class="card">
+          <h3>连接</h3>
+          <div class="row">
+            <select id="conn-kind">
+              <option value="sim">仿真 (SimLink)</option>
+              <option value="udp">UDP</option>
+              <option value="serial">串口</option>
+            </select>
+          </div>
+          <div class="row">
+            <input id="conn-bind" placeholder="绑定地址" value="0.0.0.0:14551" />
+          </div>
+          <div class="row">
+            <input id="conn-target" placeholder="目标地址 (UDP/波特率)" value="127.0.0.1:14550" />
+          </div>
+          <div class="row btns">
+            <button id="btn-connect">连接</button>
+            <button id="btn-disconnect">断开</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <h3>告警</h3>
+          <div id="alarms" class="alarms"><div class="muted">暂无告警</div></div>
+        </section>
+
+        <section class="card">
+          <h3>告警规则</h3>
+          <div class="row"><label>电量预警 %</label><input id="cfg-warn" type="number" /></div>
+          <div class="row"><label>电量严重 %</label><input id="cfg-crit" type="number" /></div>
+          <div class="row"><label>围栏半径 m</label><input id="cfg-radius" type="number" /></div>
+          <div class="row"><label>围栏纬度</label><input id="cfg-lat" type="number" step="0.0001" /></div>
+          <div class="row"><label>围栏经度</label><input id="cfg-lon" type="number" step="0.0001" /></div>
+          <div class="row btns"><button id="btn-cfg">应用规则</button></div>
+        </section>
+      </aside>
+
+      <section class="center">
+        <div class="card map-card">
+          <h3>地图 / 位置</h3>
+          <canvas id="map" width="760" height="420"></canvas>
+        </div>
+        <div class="row2">
+          <div class="card attitude-card">
+            <h3>姿态</h3>
+            <canvas id="attitude" width="240" height="240"></canvas>
+          </div>
+          <div class="card gauges-card">
+            <h3>仪表</h3>
+            <canvas id="gauges" width="240" height="240"></canvas>
+          </div>
+          <div class="card trend-card">
+            <h3>趋势</h3>
+            <canvas id="trend" width="760" height="200"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <aside class="right">
+        <section class="card">
+          <h3>参数</h3>
+          <div class="row btns"><button id="btn-params">拉取参数</button></div>
+          <div class="row"><input id="param-filter" placeholder="搜索参数名..." /></div>
+          <div id="params" class="params"><div class="muted">未拉取</div></div>
+        </section>
+        <section class="card">
+          <h3>航点</h3>
+          <div id="mission" class="mission"><div class="muted">无航点</div></div>
+          <div class="row btns"><button id="btn-upload-mission">上传航点</button></div>
+        </section>
+      </aside>
+    </main>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

@@ -72,6 +72,11 @@ impl FlightMonitor {
         self.cfg = cfg;
     }
 
+    /// 读取当前监控配置
+    pub fn config(&self) -> &MonitorConfig {
+        &self.cfg
+    }
+
     /// 评估一次飞机状态，返回本次「新触发」的告警（已激活的不重复返回）
     pub fn evaluate(&mut self, v: &VehicleModel) -> Vec<Alarm> {
         let mut fired = Vec::new();
