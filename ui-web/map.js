@@ -7,6 +7,7 @@ let map = null;
 let wpLayer = null;       // 航点图层组
 let vehMarkers = new Map(); // sysid -> marker
 let fenceLayer = null;
+let opMarker = null;      // 操作员定位标记
 let offline = false;
 
 // 初始化 Leaflet 地图（只调用一次）
@@ -38,6 +39,7 @@ export function initMap(divEl, opts = {}) {
   if (typeof navigator !== 'undefined' && navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
+        renderOperator(pos.coords.latitude, pos.coords.longitude);
         if (map) map.setView([pos.coords.latitude, pos.coords.longitude], 15);
         opts.onOperatorLocated && opts.onOperatorLocated(pos.coords.latitude, pos.coords.longitude);
       },
@@ -133,9 +135,23 @@ export function renderVehicles(vehicles, selectedSys) {
   }
 }
 
-// 同步围栏
-export function renderFence(fence) {
+// 标注操作员当前位置（浏览器定位）。lat/lng 为空则清除标记。
+export function renderOperator(lat, lng) {
   if (!map) return;
+  if (opMarker) { map.removeLayer(opMarker); opMarker = null; }
+  if (lat == null || lng == null) return;
+  opMarker = L.circleMarker([lat, lng], {
+    radius: 7,
+    color: '#2f81f7',
+    fillColor: '#2f81f7',
+    fillOpacity: 0.9,
+    weight: 3,
+  }).addTo(map);
+  opMarker.bindTooltip('操作员位置', { direction: 'top' });
+}
+
+// 同步围栏
+export function renderFence(fence) {  if (!map) return;
   if (fenceLayer) { map.removeLayer(fenceLayer); fenceLayer = null; }
   if (fence) {
     fenceLayer = L.circle([fence.lat, fence.lon], {
