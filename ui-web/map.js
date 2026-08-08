@@ -34,6 +34,18 @@ export function initMap(divEl, opts = {}) {
   });
   tiles.addTo(map);
 
+  // 尝试用浏览器定位到操作员当前位置（需授权；失败则保持默认视图，不阻塞）
+  if (typeof navigator !== 'undefined' && navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        if (map) map.setView([pos.coords.latitude, pos.coords.longitude], 15);
+        opts.onOperatorLocated && opts.onOperatorLocated(pos.coords.latitude, pos.coords.longitude);
+      },
+      () => { /* 拒绝/不可用：保持默认视图 */ },
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 600000 }
+    );
+  }
+
   wpLayer = L.layerGroup().addTo(map);
 
   // 点击空白：新增航点
