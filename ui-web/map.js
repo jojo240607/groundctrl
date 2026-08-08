@@ -56,6 +56,9 @@ export function initMap(divEl, opts = {}) {
       (pos) => {
         renderOperator(pos.coords.latitude, pos.coords.longitude);
         if (map) map.setView([pos.coords.latitude, pos.coords.longitude], 15);
+        // 离线时定位到新视口后，立即把经纬网重绘到该区域，
+        // 避免“黑底 + 一个蓝点”看起来像地图坏了。
+        if (offline) { clearOfflineGraticule(); drawOfflineGraticule(); }
         opts.onOperatorLocated && opts.onOperatorLocated(pos.coords.latitude, pos.coords.longitude);
       },
       () => { /* 拒绝/不可用：保持默认视图 */ },
@@ -109,7 +112,7 @@ function drawOfflineGraticule() {
   for (let lat = lat0; lat <= lat1; lat += 5) lines.push([[[lat, lng0], [lat, lng1]]]);
   for (let lng = lng0; lng <= lng1; lng += 5) lines.push([[[lat0, lng], [lat1, lng]]]);
   gridLayer = L.layerGroup(lines.map((seg) =>
-    L.polyline(seg[0], { color: '#2a3340', weight: 1, opacity: 0.6, interactive: false })
+    L.polyline(seg[0], { color: '#3a4658', weight: 1, opacity: 0.9, interactive: false })
   )).addTo(map);
   const redraw = () => { if (offline) { clearOfflineGraticule(); drawOfflineGraticule(); } };
   map.on('moveend', redraw);
