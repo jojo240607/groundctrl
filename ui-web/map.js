@@ -54,15 +54,26 @@ export function initMap(divEl, opts = {}) {
   if (typeof navigator !== 'undefined' && navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        renderOperator(pos.coords.latitude, pos.coords.longitude);
-        if (map) map.setView([pos.coords.latitude, pos.coords.longitude], 15);
+        const lat = pos.coords.latitude, lng = pos.coords.longitude;
+        // 诊断：把定位结果打到 console（WebView2 中按 F12 查看）
+        console.log('[map] geolocation => lat=%s lng=%s', lat, lng);
+        // 坐标合法性校验：非法/越界坐标会导致 Leaflet 瓦片 URL 异常、地图变黑
+        const ok = typeof lat === 'number' && typeof lng === 'number'
+          && isFinite(lat) && isFinite(lng)
+          && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+        if (!ok) {
+          console.warn('[map] 操作员定位坐标非法，放弃 setView，保留当前视图');
+          return;
+        }
+        renderOperator(lat, lng);
+        if (map) map.setView([lat, lng], 15);
         // 离线时定位到新视口后，立即把经纬网重绘到该区域，
         // 避免“黑底 + 一个蓝点”看起来像地图坏了。
         if (offline) { clearOfflineGraticule(); drawOfflineGraticule(); }
-        opts.onOperatorLocated && opts.onOperatorLocated(pos.coords.latitude, pos.coords.longitude);
+        opts.onOperatorLocated && opts.onOperatorLocated(lat, lng);
       },
       () => { /* 拒绝/不可用：保持默认视图 */ },
-      { enableHighAccuracy: false, timeout: 8000, maximumAge: 600000 }
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 0 }
     );
   }
 
