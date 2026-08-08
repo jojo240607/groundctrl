@@ -11,3 +11,14 @@ tmp_*.json
 chk*.txt
 out*.txt
 err*.txt
+
+# Runtime logs
+run.log
+
+# Node / frontend build output
+ui-web/node_modules/
+ui-web/dist/
+
+# Tauri generated artifacts (keep capabilities + tauri.conf.json tracked)
+groundctrl-tauri/binaries/
+groundctrl-tauri/Cargo.lock
