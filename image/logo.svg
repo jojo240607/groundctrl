@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- 发光滤镜，增强科技感 -->
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="4" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- 背景底板 -->
+  <rect width="512" height="512" rx="100" fill="#0A0F24" />
+  <rect width="512" height="512" rx="100" fill="none" stroke="#00E5FF" stroke-width="2" opacity="0.2" />
+
+  <!-- 背景科技感装饰网络 -->
+  <g opacity="0.15">
+    <circle cx="256" cy="256" r="180" fill="none" stroke="#00E5FF" stroke-width="1" />
+    <circle cx="256" cy="256" r="200" fill="none" stroke="#00E5FF" stroke-width="1" stroke-dasharray="10 20" />
+    <circle cx="100" cy="100" r="6" fill="#00E5FF" />
+    <circle cx="412" cy="100" r="6" fill="#00E5FF" />
+    <circle cx="412" cy="412" r="6" fill="#00E5FF" />
+    <circle cx="100" cy="412" r="6" fill="#00E5FF" />
+    <line x1="100" y1="100" x2="412" y2="100" stroke="#00E5FF" stroke-width="1" />
+    <line x1="100" y1="100" x2="100" y2="412" stroke="#00E5FF" stroke-width="1" />
+    <line x1="412" y1="412" x2="100" y2="412" stroke="#00E5FF" stroke-width="1" />
+    <line x1="412" y1="100" x2="412" y2="412" stroke="#00E5FF" stroke-width="1" />
+  </g>
+
+  <!-- 数据链路（连接无人机与地面站） -->
+  <g opacity="0.8">
+    <path d="M 236 190 Q 216 205 236 220" fill="none" stroke="#00E5FF" stroke-width="3" stroke-dasharray="6 6" stroke-linecap="round" filter="url(#glow)"/>
+    <path d="M 276 190 Q 296 205 276 220" fill="none" stroke="#00E5FF" stroke-width="3" stroke-dasharray="6 6" stroke-linecap="round" filter="url(#glow)"/>
+    <!-- 数据流粒子 -->
+    <circle cx="226" cy="205" r="4" fill="#00E5FF" filter="url(#glow)"/>
+    <circle cx="286" cy="205" r="4" fill="#00E5FF" filter="url(#glow)"/>
+  </g>
+
+  <!-- 无人机（四旋翼飞行器） -->
+  <g>
+    <!-- 机臂 -->
+    <line x1="256" y1="120" x2="306" y2="70" stroke="#00E5FF" stroke-width="8" stroke-linecap="round" />
+    <line x1="256" y1="120" x2="206" y2="70" stroke="#00E5FF" stroke-width="8" stroke-linecap="round" />
+    <line x1="256" y1="120" x2="306" y2="170" stroke="#00E5FF" stroke-width="8" stroke-linecap="round" />
+    <line x1="256" y1="120" x2="206" y2="170" stroke="#00E5FF" stroke-width="8" stroke-linecap="round" />
+    
+    <!-- 电机与螺旋桨（右前） -->
+    <circle cx="306" cy="70" r="14" fill="none" stroke="#00E5FF" stroke-width="2" opacity="0.4" />
+    <circle cx="306" cy="70" r="12" fill="#0A0F24" stroke="#00E5FF" stroke-width="4" />
+    <line x1="306" y1="70" x2="326" y2="50" stroke="#00E5FF" stroke-width="4" stroke-linecap="round" />
+    <line x1="306" y1="70" x2="326" y2="90" stroke="#00E5FF" stroke-width="4" stroke-linecap="round" />
+    
+    <!-- 电机与螺旋桨（左前） -->
+    <circle cx="206" cy="70" r="14" fill="none" stroke="#00E5FF" stroke-width="2" opacity="0.4" />
+    <circle cx="206" cy="70" r="12" fill="#0A0F24" stroke="#00E5FF" stroke-width="4" />
+    <line x1="206" y1="70" x2="186" y2="50" stroke="#00E5FF" stroke-width="4" stroke-linecap="round" />
+    <line x1="206" y1="70" x2="186" y2="90" stroke="#00E5FF" stroke-width="4" stroke-linecap="round" />
+
+    <!-- 电机与螺旋桨（右后） -->
+    <circle cx="306" cy="170" r="14" fill="none" stroke="#00E5FF" stroke-width="2" opacity="0.4" />
+    <circle cx="306" cy="170" r="12" fill="#0A0F24" stroke="#00E5FF" stroke-width="4" />
+    <line x1="306" y1="170" x2="326" y2="150" stroke="#00E5FF" stroke-width="4" stroke-linecap="round" />
+    <line x1="306" y1="170" x2="326" y2="190" stroke="#00E5FF" stroke-width="4" stroke-linecap="round" />
+
+    <!-- 电机与螺旋桨（左后） -->
+    <circle cx="206" cy="170" r="14" fill="none" stroke="#00E5FF" stroke-width="2" opacity="0.4" />
+    <circle cx="206" cy="170" r="12" fill="#0A0F24" stroke="#00E5FF" stroke-width="4" />
+    <line x1="206" y1="170" x2="186" y2="150" stroke="#00E5FF" stroke-width="4" stroke-linecap="round" />
+    <line x1="206" y1="170" x2="186" y2="190" stroke="#00E5FF" stroke-width="4" stroke-linecap="round" />
+
+    <!-- 无人机中央飞控 -->
+    <circle cx="256" cy="120" r="16" fill="#0A0F24" stroke="#00E5FF" stroke-width="3" filter="url(#glow)"/>
+    <circle cx="256" cy="120" r="4" fill="#00E5FF" />
+  </g>
+
+  <!-- 地面站天线 -->
+  <g>
+    <line x1="256" y1="280" x2="256" y2="220" stroke="#00E5FF" stroke-width="8" stroke-linecap="round" />
+    <circle cx="256" cy="220" r="12" fill="none" stroke="#00E5FF" stroke-width="2" opacity="0.4" />
+    <circle cx="256" cy="220" r="8" fill="#0A0F24" stroke="#00E5FF" stroke-width="3" />
+    <!-- 天线侧翼 -->
+    <line x1="256" y1="245" x2="244" y2="235" stroke="#00E5FF" stroke-width="5" stroke-linecap="round" />
+    <line x1="256" y1="245" x2="268" y2="235" stroke="#00E5FF" stroke-width="5" stroke-linecap="round" />
+  </g>
+
+  <!-- 地面站控制台与屏幕 -->
+  <g>
+    <!-- 支架 -->
+    <path d="M 196 400 L 316 400 L 336 440 L 176 440 Z" fill="#0A0F24" stroke="#00E5FF" stroke-width="4" stroke-linejoin="round" />
+    <line x1="236" y1="420" x2="276" y2="420" stroke="#00E5FF" stroke-width="4" stroke-linecap="round" />
+    <line x1="246" y1="430" x2="266" y2="430" stroke="#00E5FF" stroke-width="2" stroke-linecap="round" opacity="0.6" />
+
+    <!-- 屏幕边框 -->
+    <rect x="156" y="280" width="200" height="120" rx="12" fill="#0A0F24" stroke="#00E5FF" stroke-width="4" filter="url(#glow)"/>
+    
+    <!-- 屏幕内 HUD 界面（地图 / 雷达 / 数据） -->
+    <!-- 网格线 -->
+    <line x1="176" y1="340" x2="336" y2="340" stroke="#00E5FF" stroke-width="1" opacity="0.2" />
+    <line x1="256" y1="280" x2="256" y2="400" stroke="#00E5FF" stroke-width="1" opacity="0.2" />
+    <line x1="216" y1="340" x2="216" y2="400" stroke="#00E5FF" stroke-width="1" opacity="0.1" />
+    <line x1="296" y1="340" x2="296" y2="400" stroke="#00E5FF" stroke-width="1" opacity="0.1" />
+    
+    <!-- 雷达扫描区域 -->
+    <circle cx="256" cy="340" r="40" fill="none" stroke="#00E5FF" stroke-width="1" stroke-dasharray="4 6" opacity="0.5" />
+    <circle cx="256" cy="340" r="25" fill="none" stroke="#00E5FF" stroke-width="1" opacity="0.4" />
+    <circle cx="256" cy="340" r="10" fill="#00E5FF" fill-opacity="0.2" />
+    <line x1="256" y1="340" x2="256" y2="300" stroke="#00E5FF" stroke-width="2" />
+    <line x1="256" y1="340" x2="296" y2="340" stroke="#00E5FF" stroke-width="2" />
+
+    <!-- 雷达扫描扇区 -->
+    <path d="M 256 340 L 300 300 A 50 50 0 0 1 256 290 Z" fill="#00E5FF" fill-opacity="0.1" stroke="#00E5FF" stroke-width="1" />
+
+    <!-- 航点标记 -->
+    <path d="M 256 310 C 246 310 236 320 236 330 C 236 342 256 355 256 355 C 256 355 276 342 276 330 C 276 320 266 310 256 310 Z" fill="#00E5FF" filter="url(#glow)"/>
+    <circle cx="256" cy="330" r="6" fill="#0A0F24" />
+
+    <!-- 顶部状态栏 -->
+    <rect x="176" y="295" width="40" height="4" rx="2" fill="#00E5FF" opacity="0.6" />
+    <rect x="296" y="295" width="40" height="4" rx="2" fill="#00E5FF" opacity="0.6" />
+
+    <!-- 底部遥测数据 -->
+    <line x1="176" y1="385" x2="276" y2="385" stroke="#00E5FF" stroke-width="4" stroke-linecap="round" opacity="0.5" />
+    <line x1="176" y1="393" x2="226" y2="393" stroke="#00E5FF" stroke-width="2" stroke-linecap="round" opacity="0.3" />
+  </g>
+</svg>
