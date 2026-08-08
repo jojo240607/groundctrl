@@ -61,10 +61,22 @@ ui-web/                  前端 (Vite, 零运行时框架)
    ```bat
    cargo tauri dev
    ```
-4. 生产打包（生成 `target/release/bundle/nsis` 安装包）：
+4. 生产打包（生成 `target/release/bundle/nsis/GroundControl_0.1.0_x64-setup.exe`）：
    ```bat
    cargo tauri build
    ```
+
+## 安装与直接运行
+
+- 打包产出的是 **NSIS 安装器**（`*_x64-setup.exe`），单文件分发。
+- 双击安装器 → 安装到用户目录（`%LOCALAPPDATA%\GroundControl\`，**无需管理员权限**）→
+  桌面与开始菜单自动生成 `GroundControl` 快捷方式，点击即可运行。
+- 安装目录内的 `GroundControl.exe` 本身即可**直接双击运行**（所有依赖都在同目录），
+  可整体复制该文件夹当作**便携版**使用。
+- 配置已把 WebView2 引导程序**嵌入**安装器（`webviewInstallMode: embedBootstrapper`），
+  目标机器若未装 WebView2 也会在安装时自动补齐，无需用户手动下载。
+- 若需要真正的「单个 exe 免安装」文件：安装后用 Enigma Virtual Box 把安装目录
+  封装为单 exe，或用 NSIS 单文件模式重打包——超出 Tauri 自身能力，需在本机额外处理。
 
 ## 连接示例
 
