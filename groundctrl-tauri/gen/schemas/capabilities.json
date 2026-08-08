@@ -1,1 +1,1 @@
-{}
+{"default":{"identifier":"default","description":"主窗口默认权限：允许自定义命令调用与事件监听/发送","local":true,"windows":["main"],"permissions":["core:default","core:event:default"]}}
