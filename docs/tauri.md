@@ -48,12 +48,28 @@ ui-web/                  前端 (Vite, 零运行时框架)
 
 > 当前 headless 服务器只能 `cargo check`，最终链接需在本机带 WebView2 的 Windows 桌面完成。
 
+> 实测：本仓库当前 Rust 工具链为 **GNU (`x86_64-pc-windows-gnu`) + MinGW**，
+> Tauri v2 在该环境下 `cargo tauri build` 也能成功产出 exe（链接器会有
+> `corrupt .drectve` 的无害告警）。若使用 **MSVC 工具链** 同样可行且告警更少。
+
 1. 安装依赖：
-   - [Rust (MSVC toolchain)](https://rustup.rs/)
+   - Rust（GNU 或 MSVC 均可；GNU 需 MinGW，MSVC 需 VS2022 生成工具）
    - [Node.js 18+](https://nodejs.org/)（提供 npm / Vite）
-   - [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)（Windows 11 通常已内置）
-   - Visual Studio Build Tools (C++ 桌面开发 workload)
-2. 安装前端依赖：
+   - [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)（Windows 11 通常已内置；缺则安装器会自动补齐）
+2. 一键打包（推荐）：直接双击仓库根目录 `build.bat`，或运行 `build.ps1`。
+   手动步骤：
+   ```bat
+   cargo install tauri-cli --version "^2"   :: 仅首次
+   npm --prefix ui-web install
+   ```
+3. 开发模式（热重载，前端跑在 `http://localhost:5173`）：
+   ```bat
+   cargo tauri dev
+   ```
+4. 生产打包（生成 `target/release/bundle/nsis/GroundControl_0.1.0_x64-setup.exe`）：
+   ```bat
+   cargo tauri build
+   ```
    ```bat
    npm --prefix ui-web install
    ```

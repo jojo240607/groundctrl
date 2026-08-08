@@ -3,7 +3,6 @@
 use crate::frontend::*;
 use crate::state::*;
 use groundctrl_core::link;
-use groundctrl_core::services::TelemetryHub;
 use tauri::{AppHandle, Emitter, State};
 
 /// 连接类型

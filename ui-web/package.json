@@ -10,5 +10,8 @@
   },
   "devDependencies": {
     "vite": "^5.4.0"
+  },
+  "allowScripts": {
+    "esbuild@0.21.5": true
   }
 }

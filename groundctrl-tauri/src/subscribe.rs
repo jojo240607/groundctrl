@@ -1,7 +1,6 @@
 //! 后台订阅任务：把 core 的遥测快照与总线事件转发为 Tauri 事件推送给前端。
 
 use crate::frontend::*;
-use crate::state::AppState;
 use groundctrl_core::proto::bus::BusEvent;
 use groundctrl_core::services::alarms::AlarmLevel;
 use groundctrl_core::services::TelemetryHub;

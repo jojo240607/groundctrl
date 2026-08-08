@@ -5,15 +5,13 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
 
-use crate::frontend::{SettingsJson, MonitorConfigJson};
+use crate::frontend::SettingsJson;
 
 /// 后端共享状态。
 pub struct AppState {
     pub hub: TelemetryHub,
     /// 最近一次请求的连接 URL（由前端设置，用于重连）。
     pub connect_url: Mutex<String>,
-    /// 订阅后台任务句柄（为 None 表示未运行）。
-    pub sub_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
     /// 设置文件路径（与 exe 同目录的 settings.json）。
     pub settings_path: PathBuf,
 }
@@ -33,7 +31,6 @@ impl AppState {
         AppState {
             hub,
             connect_url: Mutex::new("tcp:127.0.0.1:5760".to_string()),
-            sub_handle: Mutex::new(None),
             settings_path,
         }
     }
@@ -54,16 +51,5 @@ pub fn load_settings(state: &AppState) -> SettingsJson {
 pub fn save_settings(state: &AppState, s: &SettingsJson) {
     if let Ok(text) = serde_json::to_string_pretty(s) {
         let _ = std::fs::write(&state.settings_path, text);
-    }
-}
-
-/// 默认告警规则（与 core MonitorConfig 默认值对齐）。
-pub fn default_monitor_config() -> MonitorConfigJson {
-    MonitorConfigJson {
-        battery_warn_pct: 30,
-        battery_critical_pct: 15,
-        fence_radius_m: 1000.0,
-        fence_lat: 31.0,
-        fence_lon: 121.0,
     }
 }

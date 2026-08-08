@@ -3,7 +3,7 @@
 //! 这些类型把 `groundctrl-core` 的内部模型转换成前端 JS/JSON 友好的形状。
 //! 这样 core 无需为其内部类型强行实现 `Serialize`，也避免把 mavlink 原始头暴露给前端。
 
-use groundctrl_core::services::alarms::{AlarmLevel, MonitorConfig};
+use groundctrl_core::services::alarms::MonitorConfig;
 use groundctrl_core::vehicle::VehicleModel;
 use serde::Serialize;
 
