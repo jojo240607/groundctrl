@@ -71,10 +71,6 @@ impl LinkStats {
         q.bytes_recv += n;
         q.packets_recv += 1;
     }
-
-    pub async fn snapshot(&self) -> LinkQuality {
-        self.inner.lock().await.clone()
-    }
 }
 
 use crate::error::Result;

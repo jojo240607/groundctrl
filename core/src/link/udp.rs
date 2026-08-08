@@ -13,7 +13,6 @@ pub struct UdpConfig {
 
 pub struct UdpLink {
     socket: UdpSocket,
-    target: String,
     stats: LinkStats,
     open: bool,
     name: String,
@@ -26,7 +25,6 @@ impl UdpLink {
         let name = format!("udp {}->{}", cfg.bind_addr, cfg.target_addr);
         Ok(Self {
             socket,
-            target: cfg.target_addr,
             stats: LinkStats::new(),
             open: true,
             name,
