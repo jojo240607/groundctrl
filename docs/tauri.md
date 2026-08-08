@@ -1,7 +1,23 @@
 # GroundControl — Tauri (Web) 桌面端
 
 `groundctrl-tauri` 是基于 **Tauri v2** 的桌面地面站，后端为 Rust（复用 `groundctrl-core`），
-前端为原生 HTML/CSS/JS + Canvas（`ui-web/`，无运行时框架，经 Vite 打包）。
+前端为原生 HTML/CSS/JS（`ui-web/`，无运行时框架，经 Vite 打包）。
+
+## 地图底图
+
+地图使用 **Leaflet**（从 npm 本地打包，运行时零 CDN 依赖）叠加 **OpenStreetMap 标准瓦片**
+（`https://tile.openstreetmap.org/{z}/{x}/{y}.png`，开源、无需 API key），与 Mission Planner /
+QGroundControl 同款做法——航点、飞机、围栏直接用真实 WGS84 经纬度叠加，缩放/拖拽/拖拽航点都由
+Leaflet 原生处理。
+
+- **联网时**：直接显示真实街道/地形底图。
+- **离线或被网络拦截时**：瓦片加载失败，地图左上角显示「离线：地图瓦片不可用」提示，
+  但航点编辑、坐标读数、飞机定位、围栏绘制等所有功能仍正常工作（只是没有底图）。
+- 瓦片恢复可达后自动隐藏提示并加载底图。
+
+如需卫星影像底图，把 `ui-web/map.js` 中 `L.tileLayer` 的 URL 换成 ESRI World Imagery
+（`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}`）
+或 OpenAerialMap 等开源源即可（均为无 key 的开源瓦片）。
 
 ## 工程结构
 

@@ -1,7 +1,8 @@
 // 地面站 Web 前端（Tauri v2）。
 // 通过 window.__TAURI__.core.invoke 调用后端命令，通过 listen 接收遥测事件。
 
-import { drawMap, screenToLatLon, hitWaypoint, getMapView } from './map.js';
+import 'leaflet/dist/leaflet.css';
+import { initMap, renderWaypoints, renderVehicles, renderFence, panTo, screenToLatLon } from './map.js';
 import { drawAttitude } from './attitude.js';
 import { drawGauges } from './gauges.js';
 import { drawTrend, trendChannels } from './trend.js';
@@ -20,16 +21,12 @@ const state = {
   trend: { t: [], alt: [], spd: [], batt: [], air: [] },
   visibleChannels: ['alt', 'spd', 'batt'],
   selectedWp: -1,
+  didPan: false,
 };
 
 // ---- 工具 ----
 const $ = (id) => document.getElementById(id);
 const fmt = (v, d = 1) => (v == null || isNaN(v)) ? '--' : Number(v).toFixed(d);
-
-// 地图交互状态
-const mapMouse = { x: 0, y: 0, inside: false };
-let mapDrag = null;      // 平移：{sx,sy,ox,oy}
-let wpDrag = null;       // 拖拽航点：{idx}
 
 // ---- 后端调用 ----
 async function getSettings() {
@@ -239,6 +236,7 @@ async function setupListeners() {
     const v = selectedVehicle();
     if (v && v.lat) {
       state.mapCenter = { lat: v.lat, lon: v.lon };
+      if (!state.didPan) { panTo(v.lat, v.lon); state.didPan = true; }
       const last = state.trail[state.trail.length - 1];
       if (!last || Math.hypot(last.lat - v.lat, last.lon - v.lon) > 1e-5) {
         state.trail.push({ lat: v.lat, lon: v.lon });
@@ -280,17 +278,36 @@ function pushTrend() {
 }
 
 function renderMap() {
-  const v = selectedVehicle();
-  drawMap($('map'), state, v, { cursor: mapMouse, selectedWp: state.selectedWp });
-  // 坐标读数
+  syncMap();
   const c = mapCenterV();
-  const span = 0.03 / getMapView().scale;
-  if (mapMouse.inside) {
-    const ll = screenToLatLon($('map'), mapMouse.x, mapMouse.y, c, span);
-    $('map-readout').textContent = `坐标：${ll.lat.toFixed(5)}, ${ll.lon.toFixed(5)}`;
-  } else {
-    $('map-readout').textContent = `中心：${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}`;
-  }
+  $('map-readout').textContent = `中心：${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}`;
+}
+
+// 把航点/飞机/围栏同步到 Leaflet 图层
+function syncMap() {
+  renderWaypoints(state.mission, state.selectedWp, wpCallbacks());
+  renderVehicles(state.vehicles, state.selected);
+  renderFence(window.__FENCE__);
+}
+
+// 航点图层回调
+function wpCallbacks() {
+  return {
+    onSelect: (i) => { state.selectedWp = i; renderMission(); },
+    onWaypointMove: (i, lat, lng) => {
+      if (state.mission[i]) state.mission[i] = { ...state.mission[i], x: lat, y: lng };
+    },
+    onWaypointMoved: (i) => { renderMission(); },
+    onWaypointDelete: (i) => { deleteWp(i); },
+  };
+}
+
+// 删除指定航点
+function deleteWp(i) {
+  if (i < 0 || i >= state.mission.length) return;
+  state.mission.splice(i, 1);
+  if (state.selectedWp >= state.mission.length) state.selectedWp = state.mission.length - 1;
+  renderMission(); renderMap();
 }
 
 function renderAll() {
@@ -301,84 +318,31 @@ function renderAll() {
   drawTrend($('trend'), state.trend, state.visibleChannels);
 }
 
-// ---- 航点交互（地图）----
+// ---- 航点交互（Leaflet）----
 function setupMapInteraction() {
-  const canvas = $('map');
-  const toLocal = (e) => {
-    const r = canvas.getBoundingClientRect();
-    return {
-      x: (e.clientX - r.left) * (canvas.width / r.width),
-      y: (e.clientY - r.top) * (canvas.height / r.height),
-    };
-  };
-
-  canvas.addEventListener('mousemove', (e) => {
-    const p = toLocal(e);
-    mapMouse.x = p.x; mapMouse.y = p.y; mapMouse.inside = true;
-    if (mapDrag) {
-      const view = getMapView();
-      view.ox = mapDrag.ox + (p.x - mapDrag.sx);
-      view.oy = mapDrag.oy + (p.y - mapDrag.sy);
-    } else if (wpDrag != null) {
-      const c = mapCenterV();
-      const span = 0.03 / getMapView().scale;
-      const ll = screenToLatLon(canvas, p.x, p.y, c, span);
-      state.mission[wpDrag] = { ...state.mission[wpDrag], x: ll.lat, y: ll.lon };
-      renderMission();
-    }
-    renderMap();
-  });
-
-  canvas.addEventListener('mouseleave', () => { mapMouse.inside = false; renderMap(); });
-
-  canvas.addEventListener('mousedown', (e) => {
-    const p = toLocal(e);
-    if (e.button === 2) return; // 右键交给 contextmenu
-    const c = mapCenterV();
-    const span = 0.03 / getMapView().scale;
-    const hit = hitWaypoint(canvas, state, p.x, p.y, c, span);
-    if (hit >= 0) {
-      wpDrag = hit; state.selectedWp = hit; renderMission();
-    } else {
-      const view = getMapView();
-      mapDrag = { sx: p.x, sy: p.y, ox: view.ox, oy: view.oy };
-    }
-  });
-
-  window.addEventListener('mouseup', () => { mapDrag = null; wpDrag = null; });
-
-  canvas.addEventListener('click', (e) => {
-    const p = toLocal(e);
-    const c = mapCenterV();
-    const span = 0.03 / getMapView().scale;
-    const hit = hitWaypoint(canvas, state, p.x, p.y, c, span);
-    if (hit >= 0) return; // 命中航点不算新增
-    const ll = screenToLatLon(canvas, p.x, p.y, c, span);
-    state.mission.push({ command: 16, x: ll.lat, y: ll.lon, z: 50 });
-    state.selectedWp = state.mission.length - 1;
-    renderMission(); renderMap();
-  });
-
-  canvas.addEventListener('contextmenu', (e) => {
-    e.preventDefault();
-    const p = toLocal(e);
-    const c = mapCenterV();
-    const span = 0.03 / getMapView().scale;
-    const hit = hitWaypoint(canvas, state, p.x, p.y, c, span);
-    if (hit >= 0) {
-      state.mission.splice(hit, 1);
-      if (state.selectedWp >= state.mission.length) state.selectedWp = state.mission.length - 1;
+  initMap($('map-leaf'), {
+    onCursor: (lat, lon) => {
+      $('map-readout').textContent = `坐标：${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+    },
+    onWaypointAdd: (lat, lon) => {
+      state.mission.push({ command: 16, x: lat, y: lon, z: 50 });
+      state.selectedWp = state.mission.length - 1;
       renderMission(); renderMap();
-    }
+    },
+    onWaypointDeleteAt: (lat, lon) => {
+      // 删除 30m 内最近航点
+      let best = -1, bestD = 30;
+      state.mission.forEach((wp, i) => {
+        const d = Math.hypot(
+          (wp.x - lat) * 111320,
+          (wp.y - lon) * 111320 * Math.cos(lat * Math.PI / 180),
+        );
+        if (d < bestD) { bestD = d; best = i; }
+      });
+      if (best >= 0) deleteWp(best);
+    },
+    ...wpCallbacks(),
   });
-
-  canvas.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    const view = getMapView();
-    const f = e.deltaY < 0 ? 1.1 : 0.9;
-    view.scale = Math.max(0.2, Math.min(8, view.scale * f));
-    renderMap();
-  }, { passive: false });
 }
 
 // ---- 遥测通道切换 ----

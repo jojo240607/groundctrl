@@ -127,6 +127,18 @@ button:active { transform: translateY(1px); }
 .mapbar .mini:hover { filter: brightness(1.2); }
 #map-readout { font-variant-numeric: tabular-nums; }
 
+.map-leaf { width: 100%; height: 420px; border: 1px solid var(--line); border-radius: 6px; background: #0a0d12; }
+.plane-icon { background: transparent; border: none; }
+.map-offline {
+  position: absolute; top: 8px; left: 8px; z-index: 500;
+  background: rgba(210,153,34,0.92); color: #1a1205;
+  padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 600;
+  display: none;
+}
+.leaflet-container { background: #0a0d12; font: inherit; }
+.leaflet-control-attribution { font-size: 9px; background: rgba(10,13,18,0.6) !important; color: #7d8aa0 !important; }
+.leaflet-control-attribution a { color: #9fb3c8 !important; }
+
 .trend-channels { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
 .trend-channels label { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); cursor: pointer; }
 .trend-channels input { accent-color: var(--accent); }
