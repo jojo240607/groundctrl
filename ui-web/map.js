@@ -9,6 +9,7 @@ let vehMarkers = new Map(); // sysid -> marker
 let fenceLayer = null;
 let opMarker = null;      // 操作员定位标记
 let offline = false;
+let gridLayer = null;     // 离线时绘制的经纬网
 
 // 初始化 Leaflet 地图（只调用一次）
 export function initMap(divEl, opts = {}) {
@@ -27,13 +28,27 @@ export function initMap(divEl, opts = {}) {
     }
   });
   tiles.on('tileload', () => {
+    tilesLoaded = true;
     if (offline) {
       offline = false;
       showOfflineBadge(false);
+      clearOfflineGraticule();
       opts.onOffline && opts.onOffline(false);
     }
   });
   tiles.addTo(map);
+
+  // 瓦片加载探测：若 6s 内没有任何瓦片成功加载（代理返回错误页/网络被拦时
+  // tileerror 可能不触发），强制进入离线提示，避免一直黑屏误以为程序坏了。
+  let tilesLoaded = false;
+  setTimeout(() => {
+    if (!tilesLoaded && !offline) {
+      offline = true;
+      showOfflineBadge(true);
+      drawOfflineGraticule();
+      opts.onOffline && opts.onOffline(true);
+    }
+  }, 6000);
 
   // 尝试用浏览器定位到操作员当前位置（需授权；失败则保持默认视图，不阻塞）
   if (typeof navigator !== 'undefined' && navigator.geolocation) {
@@ -76,9 +91,37 @@ function showOfflineBadge(on) {
     document.querySelector('.map-card')?.appendChild(el);
   }
   el.style.display = on ? 'block' : 'none';
+  if (on) drawOfflineGraticule(); else clearOfflineGraticule();
 }
 
 export function isOffline() { return offline; }
+
+// 离线时在地图上绘制淡色经纬网，使黑底区域明显是一张“地图画布”而非故障，
+// 航点/飞机/操作员标记叠加其上仍可读。仅作视觉提示，不影响任何编辑功能。
+function drawOfflineGraticule() {
+  if (!map || gridLayer) return;
+  const b = map.getBounds();
+  const lat0 = Math.floor(b.getSouth() / 5) * 5;
+  const lat1 = Math.ceil(b.getNorth() / 5) * 5;
+  const lng0 = Math.floor(b.getWest() / 5) * 5;
+  const lng1 = Math.ceil(b.getEast() / 5) * 5;
+  const lines = [];
+  for (let lat = lat0; lat <= lat1; lat += 5) lines.push([[[lat, lng0], [lat, lng1]]]);
+  for (let lng = lng0; lng <= lng1; lng += 5) lines.push([[[lat0, lng], [lat1, lng]]]);
+  gridLayer = L.layerGroup(lines.map((seg) =>
+    L.polyline(seg[0], { color: '#2a3340', weight: 1, opacity: 0.6, interactive: false })
+  )).addTo(map);
+  const redraw = () => { if (offline) { clearOfflineGraticule(); drawOfflineGraticule(); } };
+  map.on('moveend', redraw);
+  gridLayer._redraw = redraw;
+}
+function clearOfflineGraticule() {
+  if (gridLayer) {
+    if (gridLayer._redraw) map.off('moveend', gridLayer._redraw);
+    map.removeLayer(gridLayer);
+    gridLayer = null;
+  }
+}
 
 export function panTo(lat, lng) {
   if (map) map.setView([lat, lng], Math.max(map.getZoom(), 15));
