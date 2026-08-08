@@ -22,3 +22,4 @@ ui-web/dist/
 # Tauri generated artifacts (keep capabilities + tauri.conf.json tracked)
 groundctrl-tauri/binaries/
 groundctrl-tauri/Cargo.lock
+"node_modules/"  
