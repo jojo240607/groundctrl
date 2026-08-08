@@ -16,11 +16,15 @@ export function initMap(divEl, opts = {}) {
   map = L.map(divEl, { preferCanvas: true, zoomControl: true, contextmenu: true })
     .setView([31.0, 121.0], 13);
 
+  let tilesLoaded = false;
+  let tileLoadCount = 0, tileErrCount = 0;
   const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     attribution: '&copy; OpenStreetMap contributors',
   });
   tiles.on('tileerror', () => {
+    tileErrCount++;
+    console.warn('[map] tileerror #%d (offline=%s)', tileErrCount, offline);
     if (!offline) {
       offline = true;
       showOfflineBadge(true);
@@ -29,6 +33,7 @@ export function initMap(divEl, opts = {}) {
   });
   tiles.on('tileload', () => {
     tilesLoaded = true;
+    tileLoadCount++;
     if (offline) {
       offline = false;
       showOfflineBadge(false);
@@ -40,8 +45,9 @@ export function initMap(divEl, opts = {}) {
 
   // 瓦片加载探测：若 6s 内没有任何瓦片成功加载（代理返回错误页/网络被拦时
   // tileerror 可能不触发），强制进入离线提示，避免一直黑屏误以为程序坏了。
-  let tilesLoaded = false;
   setTimeout(() => {
+    console.log('[map] 6s probe: tilesLoaded=%s load=%d err=%d offline=%s',
+      tilesLoaded, tileLoadCount, tileErrCount, offline);
     if (!tilesLoaded && !offline) {
       offline = true;
       showOfflineBadge(true);
@@ -65,8 +71,21 @@ export function initMap(divEl, opts = {}) {
           console.warn('[map] 操作员定位坐标非法，放弃 setView，保留当前视图');
           return;
         }
+        // 拒绝把地图飞到 (0,0) 这种“定位成功但无真实位置”的默认值
+        if (lat === 0 && lng === 0) {
+          console.warn('[map] 定位返回 (0,0) 默认值，视为无效，保留当前视图');
+          return;
+        }
         renderOperator(lat, lng);
-        if (map) map.setView([lat, lng], 15);
+        if (map) {
+          console.log('[map] setView before: center=%s zoom=%d size=%s',
+            map.getCenter(), map.getZoom(), JSON.stringify(map.getSize()));
+          map.setView([lat, lng], 15);
+          // 异步回调中布局可能变化，强制重算视口让瓦片重新铺，避免露出深色容器底变黑
+          map.invalidateSize();
+          console.log('[map] setView after: center=%s zoom=%d offline=%s',
+            map.getCenter(), map.getZoom(), offline);
+        }
         // 离线时定位到新视口后，立即把经纬网重绘到该区域，
         // 避免“黑底 + 一个蓝点”看起来像地图坏了。
         if (offline) { clearOfflineGraticule(); drawOfflineGraticule(); }

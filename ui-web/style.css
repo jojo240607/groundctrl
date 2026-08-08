@@ -87,7 +87,7 @@ button {
 button:hover { filter: brightness(1.1); }
 button:active { transform: translateY(1px); }
 
-.map-card canvas { width: 100%; height: auto; border-radius: 6px; background: #0a0d12; }
+.map-card canvas { width: 100%; height: auto; border-radius: 6px; background: #aadaff; }
 .row2 { display: grid; grid-template-columns: 240px 240px 1fr; gap: 10px; }
 .attitude-card canvas, .gauges-card canvas {
   width: 100%; height: auto; background: #0a0d12; border-radius: 6px;
@@ -127,7 +127,7 @@ button:active { transform: translateY(1px); }
 .mapbar .mini:hover { filter: brightness(1.2); }
 #map-readout { font-variant-numeric: tabular-nums; }
 
-.map-leaf { width: 100%; height: 420px; border: 1px solid var(--line); border-radius: 6px; background: #0a0d12; }
+.map-leaf { width: 100%; height: 420px; border: 1px solid var(--line); border-radius: 6px; background: #aadaff; }
 .plane-icon { background: transparent; border: none; }
 .map-offline {
   position: absolute; top: 8px; left: 8px; z-index: 500;
@@ -135,7 +135,7 @@ button:active { transform: translateY(1px); }
   padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 600;
   display: none;
 }
-.leaflet-container { background: #0a0d12; font: inherit; }
+.leaflet-container { background: #aadaff; font: inherit; }
 .leaflet-control-attribution { font-size: 9px; background: rgba(10,13,18,0.6) !important; color: #7d8aa0 !important; }
 .leaflet-control-attribution a { color: #9fb3c8 !important; }
 
