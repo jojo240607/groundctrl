@@ -10,6 +10,7 @@ let fenceLayer = null;
 let opMarker = null;      // 操作员定位标记
 let offline = false;
 let gridLayer = null;     // 离线时绘制的经纬网
+let tileLayer = null;     // 瓦片图层（供定位后强制重绘）
 
 // 初始化 Leaflet 地图（只调用一次）
 export function initMap(divEl, opts = {}) {
@@ -22,6 +23,7 @@ export function initMap(divEl, opts = {}) {
     maxZoom: 19,
     attribution: '&copy; OpenStreetMap contributors',
   });
+  tileLayer = tiles;
   tiles.on('tileerror', () => {
     tileErrCount++;
     console.warn('[map] tileerror #%d (offline=%s)', tileErrCount, offline);
@@ -80,9 +82,12 @@ export function initMap(divEl, opts = {}) {
         if (map) {
           console.log('[map] setView before: center=%s zoom=%d size=%s',
             map.getCenter(), map.getZoom(), JSON.stringify(map.getSize()));
+          // 仅 setView：Leaflet 会基于地图当前已计算的容器尺寸请求新视口瓦片。
+          // 注意：不要用 invalidateSize() —— 在异步定位回调里调用它会把容器尺寸
+          // 重算为 0（WebView 布局时序），导致瓦片层变成 0 尺寸、永远不请求瓦片，
+          // 地图只剩底色（这正是“定位后变黑/变蓝”的根因）。旧版没有定位时地图正常，
+          // 正是因为从未调用过 invalidateSize。
           map.setView([lat, lng], 15);
-          // 异步回调中布局可能变化，强制重算视口让瓦片重新铺，避免露出深色容器底变黑
-          map.invalidateSize();
           console.log('[map] setView after: center=%s zoom=%d offline=%s',
             map.getCenter(), map.getZoom(), offline);
         }
@@ -212,16 +217,19 @@ export function renderVehicles(vehicles, selectedSys) {
 }
 
 // 标注操作员当前位置（浏览器定位）。lat/lng 为空则清除标记。
+// 注意：必须用 L.marker + divIcon（DOM 元素），不能用 L.circleMarker——
+// 在 preferCanvas:true 下 circleMarker 渲染到 overlay <canvas>，该 canvas 覆盖
+// 全视口且位于瓦片层之上，会盖住地图导致“定位后不显示瓦片”。divIcon 是轻量
+// DOM 节点，和飞机图标同机制，不会遮挡瓦片层。
 export function renderOperator(lat, lng) {
   if (!map) return;
   if (opMarker) { map.removeLayer(opMarker); opMarker = null; }
   if (lat == null || lng == null) return;
-  opMarker = L.circleMarker([lat, lng], {
-    radius: 7,
-    color: '#2f81f7',
-    fillColor: '#2f81f7',
-    fillOpacity: 0.9,
-    weight: 3,
+  const dot = `<svg width="18" height="18" viewBox="-9 -9 18 18">
+    <circle cx="0" cy="0" r="6" fill="#2f81f7" stroke="#fff" stroke-width="2"/>
+  </svg>`;
+  opMarker = L.marker([lat, lng], {
+    icon: L.divIcon({ html: dot, className: 'op-icon', iconSize: [18, 18], iconAnchor: [9, 9] }),
   }).addTo(map);
   opMarker.bindTooltip('操作员位置', { direction: 'top' });
 }

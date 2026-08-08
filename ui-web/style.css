@@ -129,6 +129,7 @@ button:active { transform: translateY(1px); }
 
 .map-leaf { width: 100%; height: 420px; border: 1px solid var(--line); border-radius: 6px; background: #aadaff; }
 .plane-icon { background: transparent; border: none; }
+.op-icon { background: transparent; border: none; }
 .map-offline {
   position: absolute; top: 8px; left: 8px; z-index: 500;
   background: rgba(210,153,34,0.92); color: #1a1205;
