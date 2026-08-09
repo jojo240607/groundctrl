@@ -70,6 +70,19 @@ pub async fn disconnect(state: State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
+/// 枚举当前系统可用串口（如 Windows 的 COM3、COM9），供前端串口连接下拉选择。
+/// USB CDC-ACM 虚拟串口插上后即出现在此列表中。
+#[tauri::command]
+pub fn list_serial_ports() -> Vec<String> {
+    match serialport::available_ports() {
+        Ok(ports) => ports.into_iter().map(|p| p.port_name).collect(),
+        Err(e) => {
+            tracing::warn!("enumerate serial ports failed: {e}");
+            Vec::new()
+        }
+    }
+}
+
 /// 主动拉取当前机队快照。
 #[tauri::command]
 pub async fn get_fleet(state: State<'_, AppState>) -> Result<FleetSnapshot, String> {

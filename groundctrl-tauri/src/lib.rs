@@ -24,6 +24,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::connect,
             commands::disconnect,
+            commands::list_serial_ports,
             commands::get_fleet,
             commands::get_settings,
             commands::save_settings,

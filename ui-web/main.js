@@ -366,6 +366,48 @@ function setupTrendChannels() {
   }
 }
 
+// 串口连接：枚举可用串口并填充下拉，选中后把端口名写入 conn-bind
+// （后端 Serial 分支用 bind 字段作为端口名）。
+async function refreshSerialPorts() {
+  const sel = $('conn-port');
+  if (!sel) return;
+  try {
+    const ports = await invoke('list_serial_ports');
+    sel.innerHTML = '';
+    if (!ports.length) {
+      sel.innerHTML = '<option value="">无可用串口</option>';
+    } else {
+      for (const p of ports) {
+        const o = document.createElement('option');
+        o.value = p; o.textContent = p;
+        sel.appendChild(o);
+      }
+    }
+    // 把当前选中端口同步到 conn-bind（后端 Serial 取 bind 作为端口名）
+    $('conn-bind').value = sel.value || '';
+  } catch (e) {
+    console.warn('list_serial_ports', e);
+  }
+}
+
+function onConnKindChange() {
+  const kind = $('conn-kind').value;
+  const isSerial = kind === 'serial';
+  const row = $('row-serial');
+  if (row) row.style.display = isSerial ? '' : 'none';
+  if (isSerial) refreshSerialPorts();
+  if (kind === 'udp') {
+    $('conn-bind').placeholder = '绑定地址';
+    $('conn-target').placeholder = '目标地址 (UDP)';
+  } else if (kind === 'serial') {
+    $('conn-bind').placeholder = '串口名 (自动填充)';
+    $('conn-target').placeholder = '波特率 (如 115200)';
+  } else {
+    $('conn-bind').placeholder = '绑定地址';
+    $('conn-target').placeholder = '目标地址';
+  }
+}
+
 // ---- 绑定 ----
 function bindUi() {
   $('btn-connect').addEventListener('click', connect);
@@ -378,6 +420,9 @@ function bindUi() {
   $('btn-wp-clear').addEventListener('click', clearMission);
   $('btn-wp-clear2').addEventListener('click', clearMission);
   $('param-filter').addEventListener('input', renderParams);
+  $('conn-kind').addEventListener('change', onConnKindChange);
+  $('conn-port').addEventListener('change', () => { $('conn-bind').value = $('conn-port').value; });
+  $('btn-refresh-port').addEventListener('click', refreshSerialPorts);
   setupMapInteraction();
 }
 
@@ -391,6 +436,7 @@ function clearMission() {
 // ---- 启动 ----
 async function main() {
   bindUi();
+  onConnKindChange();
   setupTrendChannels();
   await setupListeners();
   await getSettings();
