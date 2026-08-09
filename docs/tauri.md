@@ -43,6 +43,7 @@ ui-web/                  前端 (Vite, 零运行时框架)
 | 命令 | 参数 | 返回 |
 |------|------|------|
 | `connect` | `{kind:"sim"\|"udp"\|"serial", bind, target}` | `void` |
+| `list_serial_ports` | — | `[String]`（可用串口名，如 `["COM3","COM9"]`） |
 | `disconnect` | — | `void` |
 | `get_fleet` | — | `FleetSnapshot` |
 | `get_settings` / `save_settings` | `SettingsJson` | `SettingsJson` / `void` |
@@ -116,6 +117,40 @@ ui-web/                  前端 (Vite, 零运行时框架)
 - **仿真 (SimLink)**：`kind=sim`，`bind=0.0.0.0:14551`（默认），适用于 SITL / 回环测试。
 - **UDP**：`kind=udp`，`bind=0.0.0.0:14551`，`target=127.0.0.1:14550`。
 - **串口**：`kind=serial`，`bind=COM8`，`target=57600`（波特率）。
+
+## USB CDC 直连飞控
+
+自研飞控（flyctrl-core + joc-app-rust @ 自研 RTOS）通过 **USB CDC-ACM 虚拟串口** 与地面站通信。
+飞控 `telemetry` 任务优先把 **MAVLink v2**（`0xFD`，标准 `common` dialect、含 `CRC_EXTRA`）
+写入 `usb0` 设备（USB 未枚举时回退到 `uart3`），因此插上 USB 即被识别为一个 `COMx`，
+地面站直接以串口方式打开即可，无需额外转换线。
+
+### 对接前提（已对齐）
+- **协议版本一致**：飞控已升级为 MAVLink v2（`0xFD`），地面站 `core/src/mlink` 用
+  `read_v2_msg` 解析，双方 `common` dialect 的 `CRC_EXTRA` 字节级一致（HEARTBEAT=50、
+  SYS_STATUS=124、LOCAL_POSITION_NED=143、ATTITUDE=39、COMMAND_LONG=152 等），双向可通。
+- **通道一致**：飞控下行走 `usb0`（USB CDC），地面站串口链路用 `tokio-serial` 打开该 `COMx`。
+- **波特率忽略**：USB CDC 是虚拟串口，物理层无波特率，前端填任意值（如 `115200`）均可。
+
+### 操作步骤
+1. 板子上电，用 USB 数据线连接电脑。Windows 设备管理器「端口 (COM 和 LPT)」下会出现一个新
+   `COMx`（usbser.sys 原生驱动，无需额外 INF；每次插拔 `COM` 号可能变化）。
+2. 启动地面站（`cargo tauri dev` 或安装版 `GroundControl.exe`）。
+3. 「连接」卡片：连接类型选 **串口** → 点 **刷新** 按钮，端口下拉自动枚举出可用 `COMx`
+   （底层调用 `list_serial_ports` 命令，`serialport::available_ports()`）→ 选到板子对应的 `COMx`
+   （选中后自动填入后端需要的 `bind` 字段）→ 波特率填 `115200` → 点 **连接**。
+4. 连接成功后：`link-state` 事件 `connected=true`，`fleet` 快照开始推送，地图出现飞机图标、
+   姿态仪表与趋势曲线刷新、参数面板可 `request_params` 拉取飞控参数。
+
+### 排查
+- 下拉里看不到 `COMx`：确认 USB 已连、设备管理器有该端口、且飞控 `usb0` 已枚举
+  （`telemetry` 任务会先 `USB_IOCTL_CONNECTED` 探测再写）。
+- 连上但 `fleet` 无数据：先用串口助手（如 PuTTY/Arduino 串口监视器，任意波特率）打开该 `COMx`，
+  应看到二进制 MAVLink v2 帧（首字节 `0xFD`）；若看不到，是飞控侧未吐数据（检查 `usb0` 枚举与
+  `telemetry` 任务是否在跑），与地面站无关。
+- 收得到帧但解析异常：确认飞控/地面站均为 MAVLink v2；若飞控仍为 v1（`0xFE`），
+  需把地面站 `mlink` 解析改为 v1/v2 自动识别（见 `core/src/mlink/mod.rs`）。
+
 
 ## 说明
 
