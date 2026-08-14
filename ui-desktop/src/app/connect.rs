@@ -11,6 +11,11 @@ pub enum TabKind {
     Log,
     Alarms,
     Trends,
+    Calibration,
+    Joystick,
+    Firmware,
+    Video,
+    Script,
     Settings,
 }
 

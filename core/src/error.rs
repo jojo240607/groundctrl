@@ -21,6 +21,9 @@ pub enum GcError {
 
     #[error("unsupported: {0}")]
     Unsupported(String),
+
+    #[error("script error: {0}")]
+    Script(String),
 }
 
 pub type Result<T> = std::result::Result<T, GcError>;

@@ -30,6 +30,21 @@ pub enum BusEvent {
     Alarm { link: String, alarm: crate::services::alarms::Alarm },
     /// 日志：一帧已记录的 tlog 字节
     LogFrame { link: String, ts_ms: u64, bytes: Vec<u8> },
+    /// 收到一帧 FENCE_POINT（厂商扩展消息，不进 Mavlink 事件；坐标单位 1e7 度）
+    FencePoint {
+        link: String,
+        header: ::mavlink::MavHeader,
+        idx: u8,
+        count: u8,
+        lat: i32,
+        lng: i32,
+    },
+    /// 收到一帧 MAVLink FTP（FILE_TRANSFER_PROTOCOL，手写编解码，不进 Mavlink 事件）
+    Ftp {
+        link: String,
+        header: ::mavlink::MavHeader,
+        payload: crate::mlink::ftp::FtpPayload,
+    },
 }
 
 /// 消息总线封装

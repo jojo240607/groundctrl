@@ -31,6 +31,9 @@ pub struct AppSettings {
     pub trend_selected: Vec<String>,
     /// 趋势图是否启用
     pub trend_enabled: bool,
+    /// 界面语言（P3-3）；旧配置文件无此字段时回退默认
+    #[serde(default)]
+    pub lang: crate::i18n::Lang,
 }
 
 impl Default for AppSettings {
@@ -48,6 +51,7 @@ impl Default for AppSettings {
             window_h: 680.0,
             trend_selected: Vec::new(),
             trend_enabled: false,
+            lang: crate::i18n::Lang::default(),
         }
     }
 }

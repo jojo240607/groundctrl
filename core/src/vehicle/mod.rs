@@ -23,6 +23,12 @@ pub struct GpsPos {
     pub heading: f32,    // deg
     pub fix_type: u8,
     pub satellites: u8,
+    /// 水平定位精度 HDOP（米，来自 GPS_RAW_INT.eph）
+    pub hdop: f32,
+    /// 垂直定位精度（米，来自 GPS_RAW_INT.epv）
+    pub vdop: f32,
+    /// 地面速度（m/s，来自 GPS_RAW_INT.vel）
+    pub ground_speed: f32,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -57,6 +63,112 @@ pub struct HeartbeatInfo {
     pub last_seen: u64, // ms 时间戳
 }
 
+/// 遥控器通道状态（来自 RC_CHANNELS）
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct RcChannels {
+    /// 前 8 个常用通道的原始 PWM 值（1-8 对应摇杆/开关）
+    pub ch: [u16; 8],
+    /// 飞控上报的通道总数（0 = 未知）
+    pub chancount: u8,
+    /// 遥控信号强度 0-254（255 = 无效），0 = 未知
+    pub rssi: u8,
+    /// 是否收到过 RC_CHANNELS 帧
+    pub seen: bool,
+    /// 最近帧时间戳（ms）
+    pub last_seen: u64,
+}
+
+impl RcChannels {
+    /// 归一化某通道值到 0..1（PWM 1000..2000 中心 1500）
+    pub fn norm(&self, ch: usize) -> Option<f32> {
+        let raw = self.ch.get(ch).copied()?;
+        if raw == 0 {
+            return None;
+        }
+        let v = (raw as f32 - 1000.0) / 1000.0;
+        Some(v.clamp(0.0, 1.0))
+    }
+
+    /// 遥控器是否在线（收到帧且信号有效）
+    pub fn link_ok(&self) -> bool {
+        self.seen && self.rssi != 255 && self.rssi > 0
+    }
+}
+
+/// 最近一次飞行指令的回执（来自 COMMAND_ACK）
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct CommandAck {
+    /// 指令编号（MAV_CMD）
+    pub command: u16,
+    /// 结果码（MAV_RESULT）
+    pub result: u8,
+    /// 回执时间戳（ms）
+    pub ts: u64,
+}
+impl CommandAck {
+    /// MAV_RESULT 可读名
+    pub fn result_name(&self) -> String {
+        match self.result {
+            0 => "已接受".into(),
+            1 => "暂忙".into(),
+            2 => "被拒绝".into(),
+            3 => "不支持".into(),
+            4 => "失败".into(),
+            5 => "进行中".into(),
+            _ => format!("结果 {}", self.result),
+        }
+    }
+}
+
+/// 地理围栏状态（来自 FENCE_STATUS）
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct FenceStatus {
+    /// 是否收到过 FENCE_STATUS 帧
+    pub seen: bool,
+    /// 围栏违例状态（0 = 无违例，1 = 违例中）
+    pub breach_status: u8,
+    /// 累计违例次数
+    pub breach_count: u16,
+    /// 最近一次违例的时长（ms）
+    pub breach_time: u32,
+    /// 最近一次违例类型（FenceBreach：1=MIN_ALT 2=MAX_ALT 3=BOUNDARY）
+    pub breach_type: u8,
+    /// 最近帧时间戳（ms）
+    pub last_seen: u64,
+}
+
+impl FenceStatus {
+    /// 围栏是否生效（收到过状态帧即视为飞控已启用围栏功能）
+    pub fn enabled(&self) -> bool {
+        self.seen
+    }
+
+    /// 违例类型可读名
+    pub fn breach_type_name(&self) -> &'static str {
+        match self.breach_type {
+            1 => "最低高度",
+            2 => "最高高度",
+            3 => "边界",
+            _ => "未知",
+        }
+    }
+
+    /// 状态栏文本
+    pub fn status_text(&self) -> String {
+        if !self.seen {
+            return "未上报".into();
+        }
+        if self.breach_status != 0 {
+            format!(
+                "违例中（{}）",
+                self.breach_type_name()
+            )
+        } else {
+            format!("正常（已违例 {} 次）", self.breach_count)
+        }
+    }
+}
+
 /// 单架飞机完整状态快照
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct VehicleModel {
@@ -68,6 +180,11 @@ pub struct VehicleModel {
     pub gps: GpsPos,
     pub battery: Battery,
     pub air: AirData,
+    pub rc: RcChannels,
+    /// 最近一条飞行指令的回执（None = 尚无回执）
+    pub cmd_ack: Option<CommandAck>,
+    /// 地理围栏状态（FENCE_STATUS）
+    pub fence: FenceStatus,
     pub link_name: String,
 }
 
@@ -114,6 +231,16 @@ impl VehicleModel {
                 self.gps.alt = d.alt as f32 / 1000.0;
                 self.gps.fix_type = d.fix_type as u8;
                 self.gps.satellites = d.satellites_visible;
+                // eph/epv 单位 cm -> m；65535 = 未知
+                if d.eph != 65535 {
+                    self.gps.hdop = d.eph as f32 / 100.0;
+                }
+                if d.epv != 65535 {
+                    self.gps.vdop = d.epv as f32 / 100.0;
+                }
+                if d.vel != 65535 {
+                    self.gps.ground_speed = d.vel as f32 / 100.0;
+                }
             }
             mlink::MavMessage::VFR_HUD(d) => {
                 self.air.airspeed = d.airspeed;
@@ -121,7 +248,52 @@ impl VehicleModel {
                 self.air.climb = d.climb;
                 self.air.throttle = d.throttle;
             }
+            mlink::MavMessage::RC_CHANNELS(d) => {
+                self.rc.ch = [
+                    d.chan1_raw, d.chan2_raw, d.chan3_raw, d.chan4_raw,
+                    d.chan5_raw, d.chan6_raw, d.chan7_raw, d.chan8_raw,
+                ];
+                self.rc.chancount = d.chancount;
+                self.rc.rssi = d.rssi;
+                self.rc.seen = true;
+                self.rc.last_seen = now_ms();
+            }
+            mlink::MavMessage::COMMAND_ACK(d) => {
+                self.cmd_ack = Some(CommandAck {
+                    command: d.command as u16,
+                    result: d.result as u8,
+                    ts: now_ms(),
+                });
+            }
+            mlink::MavMessage::FENCE_STATUS(d) => {
+                self.fence.seen = true;
+                self.fence.breach_status = d.breach_status;
+                self.fence.breach_count = d.breach_count;
+                self.fence.breach_time = d.breach_time;
+                self.fence.breach_type = d.breach_type as u8;
+                self.fence.last_seen = now_ms();
+            }
             _ => {}
+        }
+    }
+
+    /// 是否武装（base_mode 的 MAV_MODE_FLAG_SAFETY_ARMED 位）
+    pub fn is_armed(&self) -> bool {
+        self.heartbeat
+            .as_ref()
+            .map(|h| h.base_mode & 0x80 != 0)
+            .unwrap_or(false)
+    }
+
+    /// 最近一条指令回执的展示文本（含超时提示）
+    pub fn ack_text(&self) -> Option<String> {
+        let ack = self.cmd_ack.as_ref()?;
+        let age_ms = now_ms().saturating_sub(ack.ts);
+        let name = cmd_name(ack.command);
+        if age_ms > 10_000 {
+            Some(format!("{name}：已发送（超时无回执）"))
+        } else {
+            Some(format!("{name}：{}", ack.result_name()))
         }
     }
 
@@ -252,4 +424,21 @@ pub fn now_ms() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+/// MAV_CMD 编号 -> 可读名（常用飞行指令）
+pub fn cmd_name(cmd: u16) -> String {
+    let name = match cmd {
+        16 => "导航航点",
+        20 => "RTL",
+        21 => "降落",
+        22 => "起飞",
+        176 => "设置模式",
+        400 => "解锁/上锁",
+        511 => "起飞(2)",
+        300 => "预解锁",
+        92 => "航向设定",
+        _ => return format!("指令 {cmd}"),
+    };
+    name.to_string()
 }

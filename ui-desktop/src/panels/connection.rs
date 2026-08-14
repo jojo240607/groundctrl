@@ -6,17 +6,18 @@ use crate::app::{ConnectKind, GroundControlApp};
 use crate::state::UiState;
 
 pub fn connection_panel(ui: &mut Ui, state: &mut UiState, app: &GroundControlApp) {
-    ui.heading("连接");
-    ui.label(format!("状态: {}", state.link_status));
-    if ui.button("断开当前链路").clicked() {
+    let lang = state.lang;
+    ui.heading(lang.tr("连接"));
+    ui.label(format!("{} {}", lang.tr("状态:"), state.link_status));
+    if ui.button(lang.tr("断开当前链路")).clicked() {
         app.disconnect();
     }
     ui.separator();
 
-    ui.collapsing("串口", |ui| {
+    ui.collapsing(lang.tr("串口"), |ui| {
         ui.text_edit_singleline(&mut state.serial_port);
         ui.add(Slider::new(&mut state.baud, 9600..=921600).logarithmic(true));
-        if ui.button("连接串口").clicked() {
+        if ui.button(lang.tr("连接串口")).clicked() {
             app.connect(ConnectKind::Serial(
                 state.serial_port.clone(),
                 state.baud,
@@ -30,7 +31,7 @@ pub fn connection_panel(ui: &mut Ui, state: &mut UiState, app: &GroundControlApp
         ui.text_edit_singleline(&mut state.udp_bind);
         ui.label("target:");
         ui.text_edit_singleline(&mut state.udp_target);
-        if ui.button("连接 UDP").clicked() {
+        if ui.button(lang.tr("连接 UDP")).clicked() {
             app.connect(ConnectKind::Udp(
                 state.udp_bind.clone(),
                 state.udp_target.clone(),
@@ -40,7 +41,7 @@ pub fn connection_panel(ui: &mut Ui, state: &mut UiState, app: &GroundControlApp
     });
 
     ui.separator();
-    if ui.button("模拟链路 (Sim)").clicked() {
+    if ui.button(lang.tr("模拟链路 (Sim)")).clicked() {
         app.connect(ConnectKind::Sim);
     }
 }

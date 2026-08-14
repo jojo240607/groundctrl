@@ -7,6 +7,12 @@ use std::io::Cursor;
 
 use crate::error::Result;
 
+/// 手写编码的厂商扩展消息（围栏 FENCE_POINT / FENCE_FETCH_POINT）
+pub mod fence;
+
+/// 手写编码的 MAVLink FTP（FILE_TRANSFER_PROTOCOL, msg 110，固件升级）
+pub mod ftp;
+
 /// 项目统一消息类型（common dialect 扁平枚举，mavlink 0.11 为具体类型）
 pub type MavMessage = ::mavlink::common::MavMessage;
 

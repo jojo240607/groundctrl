@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use ::mavlink::common as mav;
 use ::mavlink::MavHeader;
+use num_traits::FromPrimitive;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
@@ -133,7 +134,6 @@ impl TelemetryHub {
                                         header,
                                         msg: msg.clone(),
                                     });
-                                    // 更新参数缓存
                                     if let ::mavlink::common::MavMessage::PARAM_VALUE(d) = &msg {
                                         let sys = header.system_id;
                                         let just_done = {
@@ -177,6 +177,34 @@ impl TelemetryHub {
                                 }
                             }
                             Err(e) => tracing::warn!("parse error: {e}"),
+                        }
+
+                        // FENCE_POINT 不在 common dialect，需手写解析（否则会被 parser 丢弃）
+                        if let Some(fp) = crate::mlink::fence::decode_fence_point(&bytes) {
+                            bus.publish(BusEvent::FencePoint {
+                                link: name.clone(),
+                                header: ::mavlink::MavHeader {
+                                    system_id: bytes.get(5).copied().unwrap_or(0),
+                                    component_id: bytes.get(6).copied().unwrap_or(0),
+                                    sequence: bytes.get(4).copied().unwrap_or(0),
+                                },
+                                idx: fp.idx,
+                                count: fp.count,
+                                lat: fp.lat,
+                                lng: fp.lng,
+                            });
+                        }
+                        // MAVLink FTP（FILE_TRANSFER_PROTOCOL）同样不在 common dialect
+                        if let Some((_tsys, _tcomp, payload)) = crate::mlink::ftp::decode_ftp(&bytes) {
+                            bus.publish(BusEvent::Ftp {
+                                link: name.clone(),
+                                header: ::mavlink::MavHeader {
+                                    system_id: bytes.get(5).copied().unwrap_or(0),
+                                    component_id: bytes.get(6).copied().unwrap_or(0),
+                                    sequence: bytes.get(4).copied().unwrap_or(0),
+                                },
+                                payload,
+                            });
                         }
                     }
                     Err(e) => {
@@ -282,6 +310,227 @@ impl TelemetryHub {
             self.params.lock().await.entry(sys).or_default().set_local(name, value);
         }
         Ok(())
+    }
+
+    /// 发送一条 COMMAND_LONG 飞行指令（ARM/DISARM/TAKEOFF/LAND/RTL/DO_SET_MODE 等）
+    ///
+    /// `params` 为 MAV_CMD 的 7 个参数（param1..param7）。
+    pub async fn send_command_long(
+        &self,
+        sys: u8,
+        comp: u8,
+        command: mav::MavCmd,
+        params: [f32; 7],
+    ) -> crate::error::Result<()> {
+        if let Some(link) = self.current.lock().await.clone() {
+            let msg = mlink::MavMessage::COMMAND_LONG(mav::COMMAND_LONG_DATA {
+                param1: params[0],
+                param2: params[1],
+                param3: params[2],
+                param4: params[3],
+                param5: params[4],
+                param6: params[5],
+                param7: params[6],
+                command,
+                target_system: sys,
+                target_component: comp,
+                confirmation: 0,
+            });
+            let header = mlink::default_header();
+            self.send_msg(&link, &header, &msg).await?;
+        }
+        Ok(())
+    }
+
+    /// 发送传感器校准指令（MAV_CMD_PREFLIGHT_CALIBRATION）。
+    ///
+    /// `what` 位掩码：1=陀螺仪 2=加速度计 4=磁罗盘 8=气压计 128=水平校准；0=全部。
+    /// 结果通过 COMMAND_ACK 异步回传（见 `VehicleModel::cmd_ack`）。
+    pub async fn send_calibrate(
+        &self,
+        sys: u8,
+        comp: u8,
+        what: u8,
+    ) -> crate::error::Result<()> {
+        self.send_command_long(
+            sys,
+            comp,
+            mav::MavCmd::MAV_CMD_PREFLIGHT_CALIBRATION,
+            [what as f32, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        )
+        .await
+    }
+
+    /// 发送 RC 通道覆盖（RC_CHANNELS_OVERRIDE），用于摇杆 / 键盘操控。
+    ///
+    /// `chans` 为前 8 个通道值（µs，1000~2000），0 = 不覆盖该通道。
+    /// 飞控收到后按 MAVLink 超时机制自动释放（约 3s 无更新即恢复原遥控）。
+    pub async fn send_rc_override(
+        &self,
+        sys: u8,
+        comp: u8,
+        chans: [u16; 8],
+    ) -> crate::error::Result<()> {
+        if let Some(link) = self.current.lock().await.clone() {
+            let msg = mlink::MavMessage::RC_CHANNELS_OVERRIDE(mav::RC_CHANNELS_OVERRIDE_DATA {
+                target_system: sys,
+                target_component: comp,
+                chan1_raw: chans[0],
+                chan2_raw: chans[1],
+                chan3_raw: chans[2],
+                chan4_raw: chans[3],
+                chan5_raw: chans[4],
+                chan6_raw: chans[5],
+                chan7_raw: chans[6],
+                chan8_raw: chans[7],
+            });
+            let header = mlink::default_header();
+            self.send_msg(&link, &header, &msg).await?;
+        }
+        Ok(())
+    }
+
+    /// 清除所有 RC 通道覆盖（全 0 = 不覆盖）
+    pub async fn clear_rc_override(&self, sys: u8, comp: u8) -> crate::error::Result<()> {
+        self.send_rc_override(sys, comp, [0; 8]).await
+    }
+
+    /// 解锁 / 上锁（MAV_CMD_COMPONENT_ARM_DISARM）
+    pub async fn send_arm_disarm(&self, sys: u8, comp: u8, armed: bool) -> crate::error::Result<()> {
+        self.send_command_long(
+            sys,
+            comp,
+            mav::MavCmd::MAV_CMD_COMPONENT_ARM_DISARM,
+            [if armed { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        )
+        .await
+    }
+
+    /// 一键起飞（MAV_CMD_NAV_TAKEOFF，param7 = 目标高度）
+    pub async fn send_takeoff(&self, sys: u8, comp: u8, alt: f32) -> crate::error::Result<()> {
+        self.send_command_long(
+            sys,
+            comp,
+            mav::MavCmd::MAV_CMD_NAV_TAKEOFF,
+            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, alt],
+        )
+        .await
+    }
+
+    /// 降落（MAV_CMD_NAV_LAND）
+    pub async fn send_land(&self, sys: u8, comp: u8) -> crate::error::Result<()> {
+        self.send_command_long(
+            sys,
+            comp,
+            mav::MavCmd::MAV_CMD_NAV_LAND,
+            [0.0; 7],
+        )
+        .await
+    }
+
+    /// 返航（MAV_CMD_NAV_RETURN_TO_LAUNCH）
+    pub async fn send_rtl(&self, sys: u8, comp: u8) -> crate::error::Result<()> {
+        self.send_command_long(
+            sys,
+            comp,
+            mav::MavCmd::MAV_CMD_NAV_RETURN_TO_LAUNCH,
+            [0.0; 7],
+        )
+        .await
+    }
+
+    /// 切换飞行模式（MAV_CMD_DO_SET_MODE，param2 = custom_mode）
+    ///
+    /// ArduPilot Copter：0=STABILIZE 2=ALT_HOLD 3=AUTO 4=GUIDED 5=LOITER 6=RTL 9=LAND。
+    pub async fn send_mode(&self, sys: u8, comp: u8, custom_mode: u32) -> crate::error::Result<()> {
+        self.send_command_long(
+            sys,
+            comp,
+            mav::MavCmd::MAV_CMD_DO_SET_MODE,
+            [
+                1.0, // MAV_MODE_FLAG_CUSTOM_MODE_ENABLED
+                custom_mode as f32,
+                0.0, 0.0, 0.0, 0.0, 0.0,
+            ],
+        )
+        .await
+    }
+
+    /// 发送任意 MAV_CMD（参数以 f32 传入）
+    pub async fn send_raw_command(
+        &self,
+        sys: u8,
+        comp: u8,
+        cmd_id: u16,
+        params: [f32; 7],
+    ) -> crate::error::Result<()> {
+        let cmd = mav::MavCmd::from_u16(cmd_id);
+        match cmd {
+            Some(c) => self.send_command_long(sys, comp, c, params).await,
+            None => Err(crate::error::GcError::Mavlink(format!(
+                "未知 MAV_CMD {cmd_id}"
+            ))),
+        }
+    }
+
+    /// 请求飞控按流率上报数据（REQUEST_DATA_STREAM，ArduPilot 仍支持）
+    ///
+    /// `rate_hz = 0` 表示停止该流。
+    pub async fn request_data_stream(
+        &self,
+        sys: u8,
+        comp: u8,
+        stream: mav::MavDataStream,
+        rate_hz: u16,
+    ) -> crate::error::Result<()> {
+        if let Some(link) = self.current.lock().await.clone() {
+            let msg = mlink::MavMessage::REQUEST_DATA_STREAM(mav::REQUEST_DATA_STREAM_DATA {
+                req_message_rate: rate_hz,
+                target_system: sys,
+                target_component: comp,
+                req_stream_id: stream as u8,
+                start_stop: if rate_hz > 0 { 1 } else { 0 },
+            });
+            let header = mlink::default_header();
+            self.send_msg(&link, &header, &msg).await?;
+        }
+        Ok(())
+    }
+
+    /// 按流 ID 请求数据（0=ALL 1=RAW 2=EXT_STATUS 3=RC 4=RAW_CTRL 6=POSITION 10=EXTRA1 11=EXTRA2 12=EXTRA3）
+    pub async fn request_data_stream_by_id(
+        &self,
+        sys: u8,
+        comp: u8,
+        stream_id: u8,
+        rate_hz: u16,
+    ) -> crate::error::Result<()> {
+        let stream = mav::MavDataStream::from_u8(stream_id);
+        match stream {
+            Some(s) => self.request_data_stream(sys, comp, s, rate_hz).await,
+            None => Err(crate::error::GcError::Mavlink(format!(
+                "未知数据流 ID {stream_id}"
+            ))),
+        }
+    }
+
+    /// 按消息间隔设置单条消息的发送频率（MAV_CMD_SET_MESSAGE_INTERVAL，PX4/ArduPilot 通用）
+    ///
+    /// `interval_us = 0` 停止该消息。
+    pub async fn set_message_interval(
+        &self,
+        sys: u8,
+        comp: u8,
+        msg_id: u32,
+        interval_us: i32,
+    ) -> crate::error::Result<()> {
+        self.send_command_long(
+            sys,
+            comp,
+            mav::MavCmd::MAV_CMD_SET_MESSAGE_INTERVAL,
+            [msg_id as f32, interval_us as f32, 0.0, 0.0, 0.0, 0.0, 0.0],
+        )
+        .await
     }
 
     /// 开始 / 停止飞行日志记录
@@ -424,6 +673,330 @@ impl TelemetryHub {
             Ok(v) => v,
             Err(_) => None,
         }
+    }
+
+    /// 上传地理围栏：逐条发送 FENCE_POINT（坐标单位度）。
+    ///
+    /// 围栏需至少 3 个点（多边形闭合由飞控处理）。间隔 10ms 防真实链路丢帧。
+    pub async fn upload_fence(
+        &self,
+        sys: u8,
+        comp: u8,
+        points: &[(f64, f64)],
+    ) -> crate::error::Result<()> {
+        if points.len() < 3 {
+            return Err(crate::error::GcError::Mavlink(
+                "围栏至少需要 3 个点".into(),
+            ));
+        }
+        let count = points.len().min(u8::MAX as usize) as u8;
+        if let Some(link) = self.current_link().await {
+            let header = mlink::default_header();
+            for (idx, (lat, lng)) in points.iter().take(count as usize).enumerate() {
+                let bytes = crate::mlink::fence::encode_fence_point(
+                    &header,
+                    sys,
+                    comp,
+                    idx as u8,
+                    count,
+                    (lat * 1e7) as i32,
+                    (lng * 1e7) as i32,
+                )?;
+                self.send_raw(&link, &bytes).await?;
+                // 防止真实串口/数传链路丢帧
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        }
+        Ok(())
+    }
+
+    /// 下载地理围栏：先请求第 0 点得知总数，再逐条请求（FENCE_FETCH_POINT）。
+    ///
+    /// 返回 (纬度, 经度) 列表（单位度）。任一步 3s 超时即返回已收到的部分。
+    pub async fn download_fence(
+        &self,
+        sys: u8,
+        comp: u8,
+    ) -> crate::error::Result<Vec<(f64, f64)>> {
+        let link = match self.current_link().await {
+            Some(l) => l,
+            None => return Ok(Vec::new()),
+        };
+        let header = mlink::default_header();
+        let mut rx = self.bus.subscribe();
+
+        // 1) 请求第 0 点，获取 count
+        let fetch0 = crate::mlink::fence::encode_fence_fetch_point(&header, sys, comp, 0)?;
+        self.send_raw(&link, &fetch0).await?;
+        let (count, first) = match self.recv_fence_point(&mut rx, sys, 0).await {
+            Some(v) => v,
+            None => return Ok(Vec::new()), // 超时：无围栏或飞控无响应
+        };
+
+        // 2) 逐条请求（idx=0 已收到，从 1 开始）并收集
+        let mut pts: Vec<(f64, f64)> = Vec::with_capacity(count as usize);
+        pts.push((first.0 as f64 / 1e7, first.1 as f64 / 1e7));
+        for idx in 1..count {
+            let req = crate::mlink::fence::encode_fence_fetch_point(&header, sys, comp, idx as u8)?;
+            self.send_raw(&link, &req).await?;
+            match self.recv_fence_point(&mut rx, sys, idx as u8).await {
+                Some((_count, (lat_e7, lng_e7))) => {
+                    pts.push((lat_e7 as f64 / 1e7, lng_e7 as f64 / 1e7));
+                }
+                None => break, // 该条超时，停止后续请求
+            }
+        }
+        Ok(pts)
+    }
+
+    /// 等待指定 idx 的 FENCE_POINT（带 3s 超时），返回 (count, (lat_e7, lng_e7))
+    async fn recv_fence_point(
+        &self,
+        rx: &mut tokio::sync::broadcast::Receiver<crate::proto::bus::BusEvent>,
+        sys: u8,
+        idx: u8,
+    ) -> Option<(u8, (i32, i32))> {
+        let deadline = tokio::time::Duration::from_secs(3);
+        match tokio::time::timeout(deadline, async {
+            loop {
+                match rx.recv().await {
+                    Ok(crate::proto::bus::BusEvent::FencePoint {
+                        header, idx: i, count, lat, lng, ..
+                    }) => {
+                        if header.system_id == sys && i == idx {
+                            return Some((count, (lat, lng)));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        })
+        .await
+        {
+            Ok(v) => v,
+            Err(_) => None,
+        }
+    }
+
+    /// 发送一条 MAVLink FTP 帧（FILE_TRANSFER_PROTOCOL，手写编解码）
+    pub async fn send_ftp(
+        &self,
+        sys: u8,
+        comp: u8,
+        p: &crate::mlink::ftp::FtpPayload,
+    ) -> crate::error::Result<()> {
+        if let Some(link) = self.current.lock().await.clone() {
+            let header = mlink::default_header();
+            let bytes = crate::mlink::ftp::encode_ftp(&header, sys, comp, p)?;
+            self.send_raw(&link, &bytes).await?;
+        }
+        Ok(())
+    }
+
+    /// 发送 FTP 请求并等待匹配应答（ACK/NACK），3s 超时
+    ///
+    /// 应答匹配条件：seq 相同且 req_opcode == 请求的 opcode。
+    async fn ftp_exchange(
+        &self,
+        sys: u8,
+        comp: u8,
+        req: &crate::mlink::ftp::FtpPayload,
+    ) -> crate::error::Result<crate::mlink::ftp::FtpPayload> {
+        let mut rx = self.bus.subscribe();
+        self.send_ftp(sys, comp, req).await?;
+        let expect = req.opcode;
+        let resp = match tokio::time::timeout(
+            tokio::time::Duration::from_secs(3),
+            async {
+                loop {
+                    match rx.recv().await {
+                        Ok(BusEvent::Ftp { payload, .. }) => {
+                            if payload.seq == req.seq && payload.req_opcode == expect {
+                                return Ok(payload);
+                            }
+                        }
+                        Ok(_) => {}
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(_) => {
+                            return Err(crate::error::GcError::Link("ftp bus closed".into()))
+                        }
+                    }
+                }
+            },
+        )
+        .await
+        {
+            Ok(r) => r?,
+            Err(_) => {
+                return Err(crate::error::GcError::Mavlink(format!(
+                    "FTP 请求 opcode={expect} 超时"
+                )))
+            }
+        };
+        if resp.is_nack() {
+            return Err(crate::error::GcError::Mavlink(format!(
+                "FTP 请求 opcode={expect} 被拒绝, err={}",
+                resp.err()
+            )));
+        }
+        Ok(resp)
+    }
+
+    /// 通过 MAVLink FTP 上传文件到飞控（固件升级）：CreateFile + 逐块 WriteFile + TerminateSession。
+    ///
+    /// `on_progress(sent, total)` 每写入一块回调一次（总字节数）。
+    pub async fn upload_firmware<F>(
+        &self,
+        sys: u8,
+        comp: u8,
+        name: &str,
+        data: &[u8],
+        mut on_progress: F,
+    ) -> crate::error::Result<()>
+    where
+        F: FnMut(u64, u64),
+    {
+        use crate::mlink::ftp::*;
+        if data.is_empty() {
+            return Err(crate::error::GcError::Mavlink("固件内容为空".into()));
+        }
+        if name.is_empty() || name.len() > DATA_MAX {
+            return Err(crate::error::GcError::Mavlink("文件名非法".into()));
+        }
+        let total = data.len() as u64;
+        let mut seq = 0u16;
+        on_progress(0, total);
+
+        // 1) 创建文件，拿写会话
+        let create = FtpPayload::request(seq, 0, OP_CREATE_FILE, name.as_bytes().to_vec());
+        let ack = self.ftp_exchange(sys, comp, &create).await?;
+        let session = ack.session;
+        seq = seq.wrapping_add(1);
+
+        // 2) 逐块写入（每块最多 226 字节，data 前 8 字节为 offset）
+        let mut sent: u64 = 0;
+        while sent < total {
+            let start = sent as usize;
+            let end = (start + WRITE_CHUNK_MAX).min(data.len());
+            let mut chunk = Vec::with_capacity(WRITE_CHUNK_MAX + 8);
+            chunk.extend_from_slice(&sent.to_le_bytes());
+            chunk.extend_from_slice(&data[start..end]);
+            let wr = FtpPayload::request(seq, session, OP_WRITE_FILE, chunk);
+            self.ftp_exchange(sys, comp, &wr).await?;
+            seq = seq.wrapping_add(1);
+            sent = end as u64;
+            on_progress(sent, total);
+        }
+
+        // 3) 结束写会话（不等待应答，避免最后一块 ACK 丢失导致误报）
+        let term = FtpPayload::request(seq, session, OP_TERMINATE_SESSION, Vec::new());
+        let _ = self.send_ftp(sys, comp, &term).await;
+        Ok(())
+    }
+
+    /// 通过 MAVLink FTP 从飞控下载文件：OpenFileRO + 循环 ReadFile + TerminateSession。
+    ///
+    /// 读取至 EOF（短块或空块）结束。
+    pub async fn download_firmware(
+        &self,
+        sys: u8,
+        comp: u8,
+        name: &str,
+    ) -> crate::error::Result<Vec<u8>> {
+        use crate::mlink::ftp::*;
+        let mut seq = 0u16;
+
+        // 1) 打开文件，拿读会话
+        let open = FtpPayload::request(seq, 0, OP_OPEN_FILE_RO, name.as_bytes().to_vec());
+        let ack = self.ftp_exchange(sys, comp, &open).await?;
+        let session = ack.session;
+        seq = seq.wrapping_add(1);
+
+        // 2) 循环读取（每次最多 234 字节）
+        let mut out = Vec::new();
+        let mut offset = 0u64;
+        loop {
+            let mut rd = FtpPayload::request(seq, session, OP_READ_FILE, Vec::new());
+            rd.offset = offset;
+            let ack = self.ftp_exchange(sys, comp, &rd).await?;
+            seq = seq.wrapping_add(1);
+            if ack.data.is_empty() || ack.data.len() < DATA_MAX {
+                out.extend_from_slice(&ack.data);
+                break; // 末尾短块 / 空块
+            }
+            offset += ack.data.len() as u64;
+            out.extend_from_slice(&ack.data);
+        }
+
+        let term = FtpPayload::request(seq, session, OP_TERMINATE_SESSION, Vec::new());
+        let _ = self.send_ftp(sys, comp, &term).await;
+        Ok(out)
+    }
+
+    /// 列出飞控 FTP 根目录，返回 (条目类型, 文件名) 列表。
+    ///
+    /// 条目类型见 `mlink::ftp::FILETYPE_*`。
+    pub async fn ftp_list_directory(
+        &self,
+        sys: u8,
+        comp: u8,
+    ) -> crate::error::Result<Vec<(u8, String)>> {
+        use crate::mlink::ftp::*;
+        let mut seq = 0u16;
+        let mut entries = Vec::new();
+        let mut offset = 0u64;
+        loop {
+            let mut lst = FtpPayload::request(seq, 0, OP_LIST_DIRECTORY, Vec::new());
+            lst.offset = offset;
+            let ack = self.ftp_exchange(sys, comp, &lst).await?;
+            seq = seq.wrapping_add(1);
+            if ack.data.is_empty() {
+                break;
+            }
+            // data 布局：每项 [类型 u8][文件名以 NUL 结尾]
+            let mut i = 0;
+            while i < ack.data.len() {
+                let t = ack.data[i];
+                i += 1;
+                let name_end = ack.data[i..]
+                    .iter()
+                    .position(|&b| b == 0)
+                    .map(|p| i + p)
+                    .unwrap_or(ack.data.len());
+                let nm = String::from_utf8_lossy(&ack.data[i..name_end]).to_string();
+                entries.push((t, nm));
+                i = name_end + 1;
+            }
+            if ack.data.len() < DATA_MAX {
+                break;
+            }
+            offset += ack.data.len() as u64;
+        }
+        Ok(entries)
+    }
+
+    /// 计算飞控侧文件的 CRC32（OP_CALC_FILE_CRC32），用于固件完整性校验。
+    pub async fn ftp_file_crc32(&self, sys: u8, comp: u8, name: &str) -> crate::error::Result<u32> {
+        use crate::mlink::ftp::*;
+        let req = FtpPayload::request(0, 0, OP_CALC_FILE_CRC32, name.as_bytes().to_vec());
+        let ack = self.ftp_exchange(sys, comp, &req).await?;
+        if ack.data.len() < 4 {
+            return Err(crate::error::GcError::Mavlink("CRC32 应答数据不足".into()));
+        }
+        Ok(u32::from_le_bytes(ack.data[..4].try_into().unwrap()))
+    }
+
+    /// 删除飞控侧文件（OP_REMOVE_FILE）
+    pub async fn ftp_remove_file(
+        &self,
+        sys: u8,
+        comp: u8,
+        name: &str,
+    ) -> crate::error::Result<()> {
+        use crate::mlink::ftp::*;
+        let req = FtpPayload::request(0, 0, OP_REMOVE_FILE, name.as_bytes().to_vec());
+        self.ftp_exchange(sys, comp, &req).await?;
+        Ok(())
     }
 
     /// 返回地面站侧缓存的航点（即最近一次编辑/上传、或下载的航点）。

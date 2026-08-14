@@ -3,6 +3,7 @@
 //! 启动 tokio runtime 驱动 core 的 TelemetryHub，egui 订阅遥测快照并显示。
 
 mod app;
+mod i18n;
 mod panels;
 mod state;
 mod widgets;
@@ -14,6 +15,10 @@ use widgets::alarm_bar::alarm_bar;
 
 impl eframe::App for GroundControlApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // 轮询手柄事件/轴状态（P2-3 摇杆操控）
+        self.poll_joystick();
+        // 新增告警播放提示音（P2-4）
+        self.play_alarm_sounds();
         // 记录当前窗口尺寸到设置（退出时落盘）
         if let Some(r) = ctx.input(|i| i.viewport().inner_rect) {
             self.record_window_size(r.width(), r.height());
@@ -29,13 +34,13 @@ impl eframe::App for GroundControlApp {
             // 告警状态条
             alarm_bar(ui, &state);
         });
-
         egui::SidePanel::left("config").show(ctx, |ui| {
             panels::connection::connection_panel(ui, &mut state, self);
         });
 
         // 中央区：Tab 切换
         egui::CentralPanel::default().show(ctx, |ui| {
+            let lang = state.lang;
             ui.horizontal(|ui| {
                 for (tk, label) in [
                     (TabKind::Telemetry, "遥测"),
@@ -45,9 +50,17 @@ impl eframe::App for GroundControlApp {
                     (TabKind::Log, "日志"),
                     (TabKind::Alarms, "告警"),
                     (TabKind::Trends, "趋势"),
+                    (TabKind::Calibration, "校准"),
+                    (TabKind::Joystick, "操控"),
+                    (TabKind::Firmware, "固件"),
+                    (TabKind::Video, "视频"),
+                    (TabKind::Script, "脚本"),
                     (TabKind::Settings, "设置"),
                 ] {
-                    if ui.selectable_label(state.tab == tk, label).clicked() {
+                    if ui
+                        .selectable_label(state.tab == tk, lang.tr(label))
+                        .clicked()
+                    {
                         state.tab = tk;
                         if tk == TabKind::Params {
                             self.request_params();
@@ -57,19 +70,30 @@ impl eframe::App for GroundControlApp {
             });
             ui.separator();
             match state.tab {
-                TabKind::Telemetry => panels::telemetry::telemetry_panel(ui, &state.vehicle),
+                TabKind::Telemetry => panels::telemetry::telemetry_panel(ui, &mut state, self),
                 TabKind::Params => panels::params::params_panel(ui, &mut state, self),
-                TabKind::Mission => panels::mission::mission_panel(ui, &mut state, self),
+                TabKind::Mission => {
+                    panels::mission::mission_panel(ui, &mut state, self);
+                    panels::mission::fence_section(ui, &mut state, self);
+                }
                 TabKind::Map => panels::map::map_panel(ui, &mut state, self),
                 TabKind::Log => panels::log::log_panel(ui, &mut state, self),
                 TabKind::Alarms => panels::alarms::alarms_panel(ui, &mut state, self),
                 TabKind::Trends => panels::trends::trends_panel(ui, &mut state, self),
+                TabKind::Calibration => {
+                    panels::calibration::calibration_panel(ui, &mut state, self)
+                }
+                TabKind::Joystick => panels::joystick::joystick_panel(ui, &mut state, self),
+                TabKind::Firmware => panels::firmware::firmware_panel(ui, &mut state, self),
+                TabKind::Video => panels::video::video_panel(ui, &mut state, self),
+                TabKind::Script => panels::script::script_panel(ui, &mut state, self),
                 TabKind::Settings => panels::settings::settings_panel(ui, &mut state, self),
             }
         });
 
         egui::TopBottomPanel::bottom("log").show(ctx, |ui| {
-            ui.label("日志");
+            let lang = state.lang;
+            ui.label(lang.tr("日志"));
             egui::ScrollArea::vertical()
                 .max_height(120.0)
                 .show(ui, |ui| {

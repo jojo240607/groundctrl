@@ -20,6 +20,27 @@ pub struct LogFrame {
     pub bytes: Vec<u8>,
 }
 
+/// 从日志提取的一条时间序列（供图表分析）
+#[derive(Debug, Clone)]
+pub struct LogSeries {
+    /// 字段名（如「相对高度」）
+    pub name: String,
+    /// 单位（如 m / m/s / % / deg）
+    pub unit: String,
+    /// 采样点 (相对首帧秒, 值)
+    pub points: Vec<(f64, f64)>,
+}
+
+impl LogSeries {
+    fn new(name: &str, unit: &str) -> Self {
+        Self {
+            name: name.into(),
+            unit: unit.into(),
+            points: Vec::new(),
+        }
+    }
+}
+
 /// 日志管理器（内存记录 + 可选落盘）
 #[derive(Debug, Default, Clone)]
 pub struct LogManager {
@@ -132,5 +153,73 @@ impl LogManager {
     pub fn load_file(path: &str) -> std::io::Result<Self> {
         let data = std::fs::read(path)?;
         Self::from_tlog(&data).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+    }
+
+    /// 解析日志帧，提取常用遥测字段的时间序列（供图表分析）。
+    ///
+    /// 时间轴为相对首帧的秒数；无数据字段返回空序列。
+    pub fn analyze(&self) -> Vec<LogSeries> {
+        let mut series: Vec<LogSeries> = vec![
+            LogSeries::new("相对高度", "m"),
+            LogSeries::new("绝对高度", "m"),
+            LogSeries::new("地速", "m/s"),
+            LogSeries::new("空速", "m/s"),
+            LogSeries::new("爬升率", "m/s"),
+            LogSeries::new("油门", "%"),
+            LogSeries::new("电量", "%"),
+            LogSeries::new("电压", "V"),
+            LogSeries::new("横滚", "deg"),
+            LogSeries::new("俯仰", "deg"),
+            LogSeries::new("偏航", "deg"),
+            LogSeries::new("HDOP", "m"),
+            LogSeries::new("卫星数", ""),
+        ];
+        let t0 = self.frames.first().map(|f| f.ts_ms).unwrap_or(0);
+        let mut first_seen = [false; 13];
+
+        let push = |series: &mut Vec<LogSeries>, idx: usize, first: &mut [bool; 13], t: f64, v: f64| {
+            first[idx] = true;
+            series[idx].points.push((t, v));
+        };
+
+        for f in &self.frames {
+            let t = (f.ts_ms.saturating_sub(t0)) as f64 / 1000.0;
+            let mut cur = std::io::Cursor::new(&f.bytes);
+            let Ok((_h, msg)) = ::mavlink::read_v2_msg::<mlink::MavMessage, _>(&mut cur) else {
+                continue;
+            };
+            match msg {
+                mlink::MavMessage::GLOBAL_POSITION_INT(d) => {
+                    push(&mut series, 0, &mut first_seen, t, d.relative_alt as f64 / 1000.0);
+                    push(&mut series, 1, &mut first_seen, t, d.alt as f64 / 1000.0);
+                }
+                mlink::MavMessage::VFR_HUD(d) => {
+                    push(&mut series, 2, &mut first_seen, t, d.groundspeed as f64);
+                    push(&mut series, 3, &mut first_seen, t, d.airspeed as f64);
+                    push(&mut series, 4, &mut first_seen, t, d.climb as f64);
+                    push(&mut series, 5, &mut first_seen, t, d.throttle as f64);
+                }
+                mlink::MavMessage::SYS_STATUS(d) => {
+                    push(&mut series, 6, &mut first_seen, t, d.battery_remaining as f64);
+                    push(&mut series, 7, &mut first_seen, t, d.voltage_battery as f64 / 1000.0);
+                }
+                mlink::MavMessage::ATTITUDE(d) => {
+                    let r2d = 180.0_f64 / std::f64::consts::PI;
+                    push(&mut series, 8, &mut first_seen, t, d.roll as f64 * r2d);
+                    push(&mut series, 9, &mut first_seen, t, d.pitch as f64 * r2d);
+                    push(&mut series, 10, &mut first_seen, t, d.yaw as f64 * r2d);
+                }
+                mlink::MavMessage::GPS_RAW_INT(d) => {
+                    if d.eph != 65535 {
+                        push(&mut series, 11, &mut first_seen, t, d.eph as f64 / 100.0);
+                    }
+                    push(&mut series, 12, &mut first_seen, t, d.satellites_visible as f64);
+                }
+                _ => {}
+            }
+        }
+
+        series.retain(|s| !s.points.is_empty());
+        series
     }
 }

@@ -6,16 +6,35 @@ use crate::app::{GroundControlApp, TabKind};
 use crate::state::UiState;
 
 pub fn settings_panel(ui: &mut Ui, state: &mut UiState, app: &GroundControlApp) {
-    ui.heading("设置");
+    let lang = state.lang;
+    ui.heading(lang.tr("设置"));
     ui.label("修改后点击「保存到磁盘」。窗口尺寸会自动记录。");
 
     ui.separator();
-    ui.collapsing("连接默认值", |ui| {
+    // 语言切换（P3-3）
+    ui.horizontal(|ui| {
+        ui.label(lang.tr("语言"));
+        let mut sel = state.lang;
+        egui::ComboBox::from_id_source("lang_combo")
+            .selected_text(sel.label())
+            .show_ui(ui, |ui| {
+                for l in [crate::i18n::Lang::ZhCn, crate::i18n::Lang::EnUs] {
+                    ui.selectable_value(&mut sel, l, l.label());
+                }
+            });
+        if sel != state.lang {
+            state.lang = sel;
+            app.save_settings();
+        }
+    });
+
+    ui.separator();
+    ui.collapsing(lang.tr("连接默认值"), |ui| {
         ui.horizontal(|ui| {
             ui.label("串口:");
             ui.text_edit_singleline(&mut state.serial_port);
         });
-        ui.add(Slider::new(&mut state.baud, 9600..=921600).logarithmic(true).text("波特率"));
+        ui.add(Slider::new(&mut state.baud, 9600..=921600).logarithmic(true).text(lang.tr("波特率")));
         ui.horizontal(|ui| {
             ui.label("UDP bind:");
             ui.text_edit_singleline(&mut state.udp_bind);
@@ -27,24 +46,24 @@ pub fn settings_panel(ui: &mut Ui, state: &mut UiState, app: &GroundControlApp) 
     });
 
     ui.separator();
-    ui.collapsing("地图 / 瓦片", |ui| {
-        ui.checkbox(&mut state.online_tiles, "启用在线瓦片下载 (开箱即用)");
+    ui.collapsing(lang.tr("地图 / 瓦片"), |ui| {
+        ui.checkbox(&mut state.online_tiles, lang.tr("启用在线瓦片下载 (开箱即用)"));
         ui.horizontal(|ui| {
-            ui.label("瓦片源 URL:");
+            ui.label(lang.tr("瓦片源 URL:"));
             ui.text_edit_singleline(&mut state.tile_url);
         });
-        ui.add(Slider::new(&mut state.map_zoom, 2.0..=18.0).logarithmic(true).text("默认缩放"));
+        ui.add(Slider::new(&mut state.map_zoom, 2.0..=18.0).logarithmic(true).text(lang.tr("默认缩放")));
         ui.horizontal(|ui| {
             if let Some(d) = &state.tile_dir {
                 ui.label(format!("离线瓦片目录: {}", d.display()));
             } else {
                 ui.label("瓦片目录: (使用默认在线缓存目录)");
             }
-            if ui.button("清除离线目录").clicked() {
+            if ui.button(lang.tr("清除离线目录")).clicked() {
                 state.tile_dir = None;
                 state.tile_cache.clear();
             }
-            if ui.button("选择目录...").clicked() {
+            if ui.button(lang.tr("选择目录...")).clicked() {
                 let rt = app.rt.handle().clone();
                 let st = app.state.clone();
                 let h = app.save_handle();
@@ -69,11 +88,11 @@ pub fn settings_panel(ui: &mut Ui, state: &mut UiState, app: &GroundControlApp) 
 
     ui.separator();
     ui.horizontal(|ui| {
-        if ui.button("保存到磁盘").clicked() {
+        if ui.button(lang.tr("保存到磁盘")).clicked() {
             app.save_settings();
             state.export_msg = "设置已保存".to_string();
         }
-        if ui.button("重置为默认").clicked() {
+        if ui.button(lang.tr("重置为默认")).clicked() {
             *state = UiState::default();
             app.save_settings();
             state.export_msg = "已重置为默认设置并保存".to_string();
@@ -85,7 +104,13 @@ pub fn settings_panel(ui: &mut Ui, state: &mut UiState, app: &GroundControlApp) 
     }
 
     ui.separator();
-    ui.collapsing("告警规则（电量 / 地理围栏）", |ui| {
+    ui.collapsing(lang.tr("声音告警"), |ui| {
+        ui.checkbox(&mut state.sound_enabled, "启用告警提示音（低电量 / 失联 / 越界时蜂鸣）");
+        ui.label("提示音按等级区分：严重=急促双音，警告=中频单音，信息=低频短音。");
+    });
+
+    ui.separator();
+    ui.collapsing(lang.tr("告警规则（电量 / 地理围栏）"), |ui| {
         let mut cfg = state.monitor_cfg.clone();
         let mut changed = false;
 
@@ -144,7 +169,7 @@ pub fn settings_panel(ui: &mut Ui, state: &mut UiState, app: &GroundControlApp) 
     });
 
     ui.separator();
-    ui.label(format!("当前标签页: {:?}", state.tab));
+    ui.label(format!("{} {:?}", lang.tr("当前标签页:"), state.tab));
     // 提供快速跳转到其他面板
     ui.horizontal_wrapped(|ui| {
         for (tk, label) in [
@@ -154,7 +179,7 @@ pub fn settings_panel(ui: &mut Ui, state: &mut UiState, app: &GroundControlApp) 
             (TabKind::Map, "地图"),
             (TabKind::Log, "日志"),
         ] {
-            if ui.button(label).clicked() {
+            if ui.button(lang.tr(label)).clicked() {
                 state.tab = tk;
                 if tk == TabKind::Params {
                     app.request_params();

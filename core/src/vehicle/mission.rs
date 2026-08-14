@@ -12,7 +12,7 @@
 use ::mavlink::common as mav;
 
 /// 单个航点（简化：仅导航航点需要的字段）
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Waypoint {
     pub seq: u16,
     pub frame: u8,       // MAV_FRAME
