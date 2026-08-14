@@ -2484,8 +2484,10 @@ name = "groundctrl-tools"
 version = "0.1.0"
 dependencies = [
  "groundctrl-core",
+ "mavlink",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

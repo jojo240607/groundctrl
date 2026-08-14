@@ -5,6 +5,7 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_serial::SerialStream;
 
@@ -38,7 +39,8 @@ impl SerialLink {
         let baud = cfg.baud_rate;
         let open_flag = open.clone();
         tokio::spawn(async move {
-            let builder = tokio_serial::new(&port, baud);
+            let builder = tokio_serial::new(&port, baud)
+                .dtr_on_open(false); // DTR=true 会触发 Windows 复位 USB CDC 设备导致下行断；飞控 bulk-IN 不依赖 DTR
             let stream = match SerialStream::open(&builder) {
                 Ok(s) => s,
                 Err(e) => {
@@ -48,19 +50,19 @@ impl SerialLink {
             };
             open_flag.store(true, std::sync::atomic::Ordering::SeqCst);
 
-            let stream = std::sync::Arc::new(tokio::sync::Mutex::new(stream));
-            let reader_stream = stream.clone();
-            let writer_stream = stream.clone();
+            // 用 tokio::io::split 把同一底层句柄拆成独立的读半/写半。
+            // 关键：不能用共享 Mutex 包住单个 stream 再让 reader 跨 await 持有锁，
+            // 那样 writer 永远拿不到锁 -> 上行写入被饿死。split 后读/写各自无锁，
+            // 底层 Windows 串口允许读/写 overlapped 操作并发（USB CDC 端点独立）。
+            let (mut reader_half, mut writer_half) = tokio::io::split(stream);
 
             // 读任务：从串口读取字节，投递到 tx_bytes 供 recv() 消费
             tokio::spawn(async move {
                 let mut buf = [0u8; 1024];
                 loop {
-                    let mut s = reader_stream.lock().await;
-                    match tokio::io::AsyncReadExt::read(&mut *s, &mut buf).await {
+                    match tokio::io::AsyncReadExt::read(&mut reader_half, &mut buf).await {
                         Ok(0) | Err(_) => break,
                         Ok(n) => {
-                            drop(s);
                             if tx_bytes.send(buf[..n].to_vec()).is_err() {
                                 break;
                             }
@@ -77,16 +79,21 @@ impl SerialLink {
                     Some(data) => {
                         let mut off = 0;
                         while off < data.len() {
-                            let mut s = writer_stream.lock().await;
-                            match tokio::io::AsyncWriteExt::write(&mut *s, &data[off..]).await {
-                                Ok(0) | Err(_) => break,
+                            match tokio::io::AsyncWriteExt::write(&mut writer_half, &data[off..]).await {
+                                Ok(0) => break,
+                                Err(e) => {
+                                    tracing::error!("[serial] write err: {e}");
+                                    break;
+                                }
                                 Ok(n) => {
                                     off += n;
                                 }
                             }
                         }
-                        let mut s = writer_stream.lock().await;
-                        let _ = tokio::io::AsyncWriteExt::flush(&mut *s).await;
+                        match tokio::io::AsyncWriteExt::flush(&mut writer_half).await {
+                            Ok(()) => {}
+                            Err(e) => tracing::error!("[serial] flush err: {e}"),
+                        }
                     }
                 }
             }
@@ -113,12 +120,16 @@ impl Link for SerialLink {
 
     async fn recv(&self) -> Result<Vec<u8>> {
         let mut rx = self.rx.lock().await;
-        match rx.recv().await {
-            Some(b) => {
+        // 超时：串口/CDC 长时间无数据时返回 WouldBlock，让调用方（main 循环）能
+        // 周期性地检查自己的 deadline 并正常退出。否则 rx.recv() 永久阻塞，
+        // main 会卡死在 recv() 上、永远到不了 deadline 检查。
+        match tokio::time::timeout(Duration::from_millis(100), rx.recv()).await {
+            Ok(Some(b)) => {
                 self.stats.add_recv(b.len() as u64).await;
                 Ok(b)
             }
-            None => Err(GcError::Link("serial closed".into())),
+            Ok(None) => Err(GcError::Link("serial closed".into())),
+            Err(_) => Err(GcError::Link("recv timeout".into())),
         }
     }
 

@@ -38,6 +38,9 @@ impl MavlinkParser {
     pub fn feed(&mut self, chunk: &[u8]) -> Result<Vec<(::mavlink::MavHeader, MavMessage)>> {
         self.buf.extend_from_slice(chunk);
         let mut out = Vec::new();
+        // MAVLink v2 最小帧：magic(1)+len(1)+seq(1)+sysid(1)+compid(1)+msgid(1)
+        //                      +incompat(1)+compat(1)+seq(2)+payload(0)+crc(2) = 12 字节
+        const MIN_FRAME: usize = 12;
         loop {
             if self.buf.is_empty() {
                 break;
@@ -48,14 +51,27 @@ impl MavlinkParser {
             match ::mavlink::read_v2_msg::<MavMessage, _>(&mut cursor) {
                 Ok((header, msg)) => {
                     let consumed = cursor.position() as usize - before;
+                    if consumed == 0 {
+                        // 防御：异常未消费，丢弃首字节避免死循环
+                        self.buf.drain(..1);
+                        continue;
+                    }
                     self.header = header;
                     out.push((header, msg));
                     self.buf.drain(..consumed);
                 }
                 Err(_) => {
-                    // 数据不足或帧不完整：保留缓冲，等更多字节
-                    if self.buf.len() > 4096 {
-                        self.buf.remove(0);
+                    // 解析失败：区分「数据不足」与「非法帧起点」。
+                    // 若剩余字节已足够容纳最小帧，说明当前 buf 开头不是合法帧
+                    // （magic 不对或 CRC 错），必须丢弃首字节重新同步到下一个
+                    // magic；否则保留缓冲等待更多字节到达。
+                    if self.buf.len() >= MIN_FRAME {
+                        self.buf.drain(..1);
+                        // 防止缓冲无限增长（极端持续错位时兜底）
+                        if self.buf.len() > 4096 {
+                            self.buf.drain(..self.buf.len() - 4096);
+                        }
+                        continue;
                     }
                     break;
                 }
