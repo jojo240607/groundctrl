@@ -285,9 +285,10 @@ impl TelemetryHub {
     /// 请求飞控上报全部参数（向当前链路发送 PARAM_REQUEST_LIST）
     pub async fn request_params(&self, sys: u8, comp: u8) -> crate::error::Result<()> {
         if let Some(link) = self.current.lock().await.clone() {
-            let msg = ParamManager::make_request_list(sys, comp);
-            let header = mlink::default_header();
-            self.send_msg(&link, &header, &msg).await?;
+            // 标准顺序编码（crate 0.11.2 的 PARAM_REQUEST_LIST 字段顺序反了）
+            let h = mlink::default_header();
+            let bytes = mlink::encode_std_param_request_list(sys, comp, h.sequence);
+            self.send_raw(&link, &bytes).await?;
             // 清空旧缓存，准备重新拉取
             self.params.lock().await.entry(sys).or_default().clear();
         }
@@ -303,9 +304,10 @@ impl TelemetryHub {
         value: f32,
     ) -> crate::error::Result<()> {
         if let Some(link) = self.current.lock().await.clone() {
-            let msg = ParamManager::make_set(sys, comp, name, value);
-            let header = mlink::default_header();
-            self.send_msg(&link, &header, &msg).await?;
+            // 标准顺序编码（crate 0.11.2 的 PARAM_SET 字段顺序反了）
+            let h = mlink::default_header();
+            let bytes = mlink::encode_std_param_set(sys, comp, h.sequence, name, value);
+            self.send_raw(&link, &bytes).await?;
             // 乐观更新缓存
             self.params.lock().await.entry(sys).or_default().set_local(name, value);
         }
@@ -323,21 +325,14 @@ impl TelemetryHub {
         params: [f32; 7],
     ) -> crate::error::Result<()> {
         if let Some(link) = self.current.lock().await.clone() {
-            let msg = mlink::MavMessage::COMMAND_LONG(mav::COMMAND_LONG_DATA {
-                param1: params[0],
-                param2: params[1],
-                param3: params[2],
-                param4: params[3],
-                param5: params[4],
-                param6: params[5],
-                param7: params[6],
-                command,
-                target_system: sys,
-                target_component: comp,
-                confirmation: 0,
-            });
-            let header = mlink::default_header();
-            self.send_msg(&link, &header, &msg).await?;
+            // mavlink crate 0.11.2 的 COMMAND_LONG 字段顺序与标准相反，板端无法解析；
+            // 改用标准顺序手写编码（见 mlink::encode_std_command_long）。
+            let cmd_u16 = command as u16;
+            let h = mlink::default_header();
+            let bytes = mlink::encode_std_command_long(
+                sys, comp, h.sequence, cmd_u16, params, 0,
+            );
+            self.send_raw(&link, &bytes).await?;
         }
         Ok(())
     }

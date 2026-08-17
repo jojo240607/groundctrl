@@ -7,7 +7,57 @@ import { drawAttitude } from './attitude.js';
 import { drawGauges } from './gauges.js';
 import { drawTrend, trendChannels } from './trend.js';
 
-const { invoke, listen } = window.__TAURI__;
+// ===== 后端桥接 =====
+// 在 Tauri 运行时中，invoke/listen 通过 @tauri-apps/api 注入的全局对象提供。
+// 在无头浏览器(纯 Web)联调环境下，window.__TAURI__ 不存在，改为通过 WebSocket
+// 连接本地桥服务器 (gc_bridge.js)，复用同一套 invoke/listen 语义。
+let invoke, listen;
+if (window.__TAURI__) {
+  ({ invoke, listen } = window.__TAURI__.core);
+} else {
+  // ---- 浏览器 fallback：WebSocket 桥 ----
+  const Bridge = (() => {
+    const WS_URL = 'ws://localhost:8787';
+    let ws = null;
+    let reqId = 0;
+    const pending = new Map();
+    const listeners = new Map(); // event -> Set<cb>
+    function ensure() {
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+      ws = new WebSocket(WS_URL);
+      ws.onmessage = (ev) => {
+        const msg = JSON.parse(ev.data);
+        if (msg.type === 'resp') {
+          const p = pending.get(msg.id);
+          if (p) { pending.delete(msg.id); msg.ok ? p.resolve(msg.data) : p.reject(new Error(msg.error)); }
+        } else if (msg.type === 'event') {
+          const set = listeners.get(msg.event);
+          if (set) set.forEach((cb) => cb({ event: msg.event, payload: msg.payload }));
+        }
+      };
+    }
+    ensure();
+    return {
+      invoke(cmd, args) {
+        ensure();
+        const id = ++reqId;
+        return new Promise((resolve, reject) => {
+          pending.set(id, { resolve, reject });
+          const send = () => ws.send(JSON.stringify({ type: 'invoke', id, cmd, args: args || {} }));
+          if (ws.readyState === WebSocket.OPEN) send();
+          else ws.addEventListener('open', send, { once: true });
+        });
+      },
+      listen(event, cb) {
+        if (!listeners.has(event)) listeners.set(event, new Set());
+        listeners.get(event).add(cb);
+        return Promise.resolve(() => listeners.get(event).delete(cb));
+      },
+    };
+  })();
+  invoke = Bridge.invoke;
+  listen = Bridge.listen;
+}
 
 // ---- 全局状态 ----
 const state = {

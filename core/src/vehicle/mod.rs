@@ -29,6 +29,8 @@ pub struct GpsPos {
     pub vdop: f32,
     /// 地面速度（m/s，来自 GPS_RAW_INT.vel）
     pub ground_speed: f32,
+    /// 是否收到过 GLOBAL_POSITION_INT / GPS_RAW_INT 帧
+    pub seen: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -219,6 +221,7 @@ impl VehicleModel {
                 self.gps.alt = d.alt as f32 / 1000.0;
                 self.gps.relative_alt = d.relative_alt as f32 / 1000.0;
                 self.gps.heading = d.hdg as f32;
+                self.gps.seen = true;
             }
             mlink::MavMessage::SYS_STATUS(d) => {
                 self.battery.voltage = d.voltage_battery as f32 / 1000.0;
@@ -230,6 +233,7 @@ impl VehicleModel {
                 self.gps.lon = d.lon as f64 / 1e7;
                 self.gps.alt = d.alt as f32 / 1000.0;
                 self.gps.fix_type = d.fix_type as u8;
+                self.gps.seen = true;
                 self.gps.satellites = d.satellites_visible;
                 // eph/epv 单位 cm -> m；65535 = 未知
                 if d.eph != 65535 {
