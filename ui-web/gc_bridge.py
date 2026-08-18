@@ -80,8 +80,14 @@ def enc_param_request_read(name, idx=-1, seq=0):
 MODE_NAMES = {0:'STABILIZE',1:'ACRO',2:'ALT_HOLD',3:'POSHOLD',4:'GUIDED',5:'LOITER',
               6:'AUTO',7:'CIRCLE',9:'LAND',11:'RTL',12:'DRIFT',13:'SPORT',15:'GUIDED_NOGPS',16:'NORMAL'}
 
-# MAVLink v2 CRC_EXTRA（common.xml），用于入站帧校验与帧同步恢复
-CRC_EXTRA = {0:50, 1:124, 30:39, 32:185, 33:104, 74:20}
+# MAVLink v2 CRC_EXTRA（common.xml），用于入站帧校验与帧同步恢复。
+# 下行已覆盖 HB(0)/SYS_STATUS(1)/ATTITUDE(30)/LOCAL_POSITION_NED(32)/GLOBAL_POSITION_INT(33)/VFR_HUD(74)；
+# 上行指令需覆盖 COMMAND_LONG(76)/COMMAND_ACK(77)，否则发出的 ARM/DISARM 等指令 CRC 错误
+# 被飞控拒绝（decode FAILED），界面无法同步解锁状态。
+# 参数流：PARAM_REQUEST_READ(20)/PARAM_REQUEST_LIST(21)/PARAM_VALUE(22)/PARAM_SET(23) ——
+# 缺这几项会导致板子下发的 PARAM_VALUE 入站 CRC 校验失败（extra 缺省 0）被当成错位帧丢弃，
+# 界面拉取参数永远为 0 条。常量与下方 enc_* 出站编码保持一致（与飞控 mavlink.rs 对齐）。
+CRC_EXTRA = {0:50, 1:124, 20:214, 21:159, 22:220, 23:168, 30:39, 32:185, 33:104, 74:20, 76:152, 77:143}
 
 # ---- 当前遥测状态 ----
 class Snap:

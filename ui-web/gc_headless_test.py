@@ -6,23 +6,26 @@ from playwright.async_api import async_playwright
 WS_BRIDGE = 'ws://localhost:8787'
 UI_URL = 'http://127.0.0.1:5173/'
 
-CRC_TABLE = []
-for i in range(256):
-    c = i
-    for _ in range(8):
-        c = (c >> 1) ^ 0x8408 if (c & 1) else (c >> 1)
-    CRC_TABLE.append(c)
 def crc16(buf, extra):
+    # 与桥 gc_bridge.crc16 / 飞控 crc16_x25 严格一致的反射 CRC-16-CCITT/X25：
+    # 初值 0xFFFF，逐字节反射累积，最后把 CRC_EXTRA 作为「最后一个字节」走完整 8 轮移位。
+    # 之前用查表法时 extra 折叠逻辑写错（做两次表步），导致 CRC 与正确值不一致（实测
+    # COMMAND_LONG 帧被板子 CRC 校验拒绝、ARM/模式切换全不生效）。必须用与桥相同的位算法。
     crc = 0xFFFF
     for x in buf:
-        crc = (crc >> 8) ^ CRC_TABLE[((crc ^ x) & 0xFF)]
+        crc ^= x
+        for _ in range(8):
+            crc = ((crc >> 1) ^ 0x8408) if (crc & 1) else (crc >> 1)
     crc ^= extra
-    crc = (crc >> 8) ^ CRC_TABLE[(crc & 0xFF) ^ 0x00]
-    crc = (crc >> 8) ^ CRC_TABLE[(crc & 0xFF)]
-    return crc
+    for _ in range(8):
+        crc = ((crc >> 1) ^ 0x8408) if (crc & 1) else (crc >> 1)
+    return crc & 0xFFFF
 def enc_command_long(command, params=(0,0,0,0,0,0,0), confirmation=0, seq=0):
+    # 必须补齐 7 个 f32 参数（标准 COMMAND_LONG payload = 5 头部 + 28 参数 = 33B），
+    # 否则板子 decode_command_long 要求 payload>=33 会直接丢弃指令（实测 ARM/DISARM 不生效）。
+    p = list(params) + [0.0] * (7 - len(params))
     pl = bytes([1,1, command & 0xFF, command >> 8, confirmation])
-    pl += b''.join(struct.pack('<f', float(x)) for x in params)
+    pl += b''.join(struct.pack('<f', float(x)) for x in p)
     body = bytes([0xFD, len(pl), 0,0, seq, 1,1, 76,0,0]) + pl
     c = crc16(body[1:], 152)
     return body + bytes([c & 0xFF, c >> 8])
