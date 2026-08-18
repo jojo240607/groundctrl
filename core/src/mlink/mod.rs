@@ -5,6 +5,8 @@
 
 use std::io::Cursor;
 
+use num_traits::FromPrimitive;
+
 use crate::error::Result;
 
 /// 手写编码的厂商扩展消息（围栏 FENCE_POINT / FENCE_FETCH_POINT）
@@ -160,6 +162,17 @@ impl MavlinkParser {
             if self.buf.is_empty() {
                 break;
             }
+            // HEARTBEAT (msgid 0) 的 base_mode/custom_mode 被 mavlink 0.11.2 crate
+            // 反序列化错位（与 PARAM_VALUE 同病：crate 字段序与标准 common.xml 相反）。
+            // 板子按标准顺序发帧，crate 能「成功」解析但字段值错（实测 base_mode=0x00
+            // 而原始 pl[2]=0x80、custom_mode 为垃圾），故无法像 PARAM_VALUE 走 Err(_) 兜底。
+            // 这里在 crate 解析前优先用手写标准顺序解析，覆盖 crate 的错误输出。
+            if let Some((header, msg, consumed)) = try_parse_heartbeat_std(&self.buf) {
+                self.header = header;
+                out.push((header, msg));
+                self.buf.drain(..consumed);
+                continue;
+            }
             // mavlink crate 从 Read 解析；用 Cursor 跟踪消费字节数
             let mut cursor = Cursor::new(self.buf.clone());
             let before = cursor.position() as usize;
@@ -312,6 +325,68 @@ fn try_parse_param_value_std(
         param_index: index,
     };
     let msg = MavMessage::PARAM_VALUE(data);
+    Some((header, msg, frame_len))
+}
+
+/// 尝试用标准 common.xml 字段顺序解析 HEARTBEAT (msgid 0)。
+///
+/// mavlink 0.11.2 crate 的 `HEARTBEAT_DATA` 反序列化顺序与标准相反（同 PARAM_VALUE，
+/// 见 feed 里的说明），导致板子（标准顺序）发来的 HEARTBEAT 被 crate 成功解析但
+/// base_mode / custom_mode 字段错位（实测 raw pl[2]=0x80 而 crate base_mode=0x00，
+/// custom_mode=159384322）。这里手写标准顺序解析，校验 CRC（CRC_EXTRA=50）后
+/// 构造正确的 `MavMessage`。
+///
+/// 返回 `(header, msg, consumed)`；若 buf 开头不是合法 HEARTBEAT 帧则返回 None。
+fn try_parse_heartbeat_std(
+    buf: &[u8],
+) -> Option<(::mavlink::MavHeader, MavMessage, usize)> {
+    if buf.len() < 12 || buf[0] != 0xFD {
+        return None;
+    }
+    let msg_id = (buf[7] as u32) | ((buf[8] as u32) << 8) | ((buf[9] as u32) << 16);
+    if msg_id != 0 {
+        return None;
+    }
+    let plen = buf[1] as usize;
+    let frame_len = 10 + plen + 2;
+    if buf.len() < frame_len {
+        return None; // 数据尚不完整，等更多字节
+    }
+    let payload = &buf[10..10 + plen];
+    if plen != 9 {
+        return None;
+    }
+    // 校验 CRC（覆盖 头[1..10] + payload，附加 CRC_EXTRA=50）
+    let crc_calc = mav_crc16(&buf[1..10 + plen], 50);
+    let crc_wire = (buf[10 + plen] as u16) | ((buf[10 + plen + 1] as u16) << 8);
+    if crc_calc != crc_wire {
+        return None;
+    }
+    use ::mavlink::common::{MavAutopilot, MavModeFlag, MavState, MavType};
+    let header = ::mavlink::MavHeader {
+        system_id: buf[5],
+        component_id: buf[6],
+        sequence: buf[4],
+    };
+    // 标准字段顺序：type[0], autopilot[1], base_mode[2], custom_mode u32[3..7],
+    //                system_status[7], mavlink_version[8]
+    let mavtype = MavType::from_u8(payload[0]).unwrap_or(MavType::MAV_TYPE_GENERIC);
+    let autopilot =
+        MavAutopilot::from_u8(payload[1]).unwrap_or(MavAutopilot::MAV_AUTOPILOT_INVALID);
+    let base_mode = MavModeFlag::from_bits_truncate(payload[2]);
+    let custom_mode = u32::from_le_bytes([payload[3], payload[4], payload[5], payload[6]]);
+    let system_status =
+        MavState::from_u8(payload[7]).unwrap_or(MavState::MAV_STATE_UNINIT);
+    let mavlink_version = payload[8];
+    let data = ::mavlink::common::HEARTBEAT_DATA {
+        custom_mode,
+        mavtype,
+        autopilot,
+        base_mode,
+        system_status,
+        mavlink_version,
+    };
+    let msg = MavMessage::HEARTBEAT(data);
     Some((header, msg, frame_len))
 }
 
