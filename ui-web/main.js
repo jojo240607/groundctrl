@@ -13,7 +13,12 @@ import { drawTrend, trendChannels } from './trend.js';
 // 连接本地桥服务器 (gc_bridge.js)，复用同一套 invoke/listen 语义。
 let invoke, listen;
 if (window.__TAURI__) {
-  ({ invoke, listen } = window.__TAURI__.core);
+  // Tauri v2 全局 API 命名空间：invoke 在 __TAURI__.core，listen 在 __TAURI__.event。
+  // 若从 __TAURI__.core 解构 listen 会是 undefined，导致 setupListeners 里 listen('fleet')
+  // 抛 TypeError、main() 中断，前端收不到任何后端事件（fleet/link-state/param-value），
+  // 表现为「已连接（本地 setLink）但模式/状态/参数全 -- / 无飞行器」。
+  invoke = window.__TAURI__.core.invoke;
+  listen = window.__TAURI__.event.listen;
 } else {
   // ---- 浏览器 fallback：WebSocket 桥 ----
   const Bridge = (() => {
@@ -449,9 +454,14 @@ function onConnKindChange() {
   if (kind === 'udp') {
     $('conn-bind').placeholder = '绑定地址';
     $('conn-target').placeholder = '目标地址 (UDP)';
+    $('conn-target').value = $('conn-target').value || '127.0.0.1:14550';
   } else if (kind === 'serial') {
+    // 切到串口时，target 槽位就是波特率；必须给一个有效默认（板子 115200），
+    // 否则沿用 UDP 默认 "127.0.0.1:14550" 会在后端 parse::<u32>() 失败后回落 57600，
+    // 导致连上串口却收不到遥测（GUI 显示已连接但模式/状态/高度全 --）。
     $('conn-bind').placeholder = '串口名 (自动填充)';
     $('conn-target').placeholder = '波特率 (如 115200)';
+    $('conn-target').value = '115200';
   } else {
     $('conn-bind').placeholder = '绑定地址';
     $('conn-target').placeholder = '目标地址';
