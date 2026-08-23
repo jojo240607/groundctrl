@@ -134,7 +134,7 @@ impl FtpPayload {
 
 /// 编码一条 MAV_FTP 帧（v2，payload 254 字节，crc_extra 84）
 pub fn encode_ftp(
-    header: &::mavlink::MavHeader,
+    header: &crate::mlink::MavHeader,
     target_system: u8,
     target_component: u8,
     p: &FtpPayload,
@@ -242,7 +242,7 @@ mod tests {
     /// 编码 -> 解码往返一致（含 CRC 校验）
     #[test]
     fn ftp_roundtrip() {
-        let header = ::mavlink::MavHeader {
+        let header = crate::mlink::MavHeader {
             system_id: 255,
             component_id: 190,
             sequence: 9,
@@ -262,7 +262,7 @@ mod tests {
     /// 篡改一字节后应无法解析（CRC 校验生效）
     #[test]
     fn ftp_rejects_tampered() {
-        let header = ::mavlink::MavHeader {
+        let header = crate::mlink::MavHeader {
             system_id: 255,
             component_id: 190,
             sequence: 1,
@@ -281,7 +281,7 @@ mod tests {
         chunk.extend_from_slice(&[0xAA; 100]);
         let req = FtpPayload::request(2, 1, OP_WRITE_FILE, chunk.clone());
         assert_eq!(req.size, 108);
-        let header = ::mavlink::MavHeader {
+        let header = crate::mlink::MavHeader {
             system_id: 255,
             component_id: 190,
             sequence: 2,

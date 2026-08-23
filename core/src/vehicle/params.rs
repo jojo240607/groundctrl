@@ -9,7 +9,7 @@
 
 use std::collections::BTreeMap;
 
-use ::mavlink::common as mav;
+use mavlink_core::common as mav;
 
 /// 单个参数缓存项
 #[derive(Debug, Clone, PartialEq)]
@@ -167,4 +167,4 @@ pub fn string_to_cstr(name: &str) -> [u8; 16] {
 }
 
 // 让上层能引用 mavlink 的 common 别名（避免重复 use）
-pub use ::mavlink::common as common;
+pub use mavlink_core::common as common;

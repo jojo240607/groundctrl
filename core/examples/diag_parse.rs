@@ -1,10 +1,9 @@
-//! 诊断：用标准 mavlink crate 的 read_v2_msg 解析板子下行帧，
+//! 诊断：用共用 mavlink-core 的 read_v2_msg 解析板子下行帧，
 //! 统计每个 msg_id 解析成功/失败，定位地面站为何丢弃部分下行帧。
-use std::io::Cursor;
 
 use groundctrl_core::link::serial::{SerialConfig, SerialLink};
 use groundctrl_core::link::Link;
-use mavlink::common::MavMessage;
+use mavlink_core::common::MavMessage;
 
 #[tokio::main]
 async fn main() {
@@ -20,19 +19,16 @@ async fn main() {
     let mut total = 0u32;
     // 开头发一个 PARAM_REQUEST_LIST（sys=1, comp=1），让飞控回 PARAM_VALUE(22)
     {
-        let header = mavlink::MavHeader {
+        let header = mavlink_core::common::MavHeader {
             system_id: 255,
             component_id: 190,
             sequence: 0,
         };
-        let req = mavlink::common::MavMessage::PARAM_REQUEST_LIST(
-            mavlink::common::PARAM_REQUEST_LIST_DATA {
-                target_system: 1,
-                target_component: 1,
-            },
-        );
-        let mut out = Vec::new();
-        mavlink::write_v2_msg(&mut out, header, &req).unwrap();
+        let req = MavMessage::PARAM_REQUEST_LIST(mavlink_core::common::PARAM_REQUEST_LIST_DATA {
+            target_system: 1,
+            target_component: 1,
+        });
+        let out = mavlink_core::common::write_v2_msg(&header, &req).unwrap();
         let _ = serial.send(&out).await;
     }
     while start.elapsed().as_secs() < 12 {
@@ -58,22 +54,14 @@ async fn main() {
                     let msg_id = (buf[7] as u32)
                         | ((buf[8] as u32) << 8)
                         | ((buf[9] as u32) << 16);
-                    let mut cur = Cursor::new(buf.clone());
-                    if msg_id == 22 && std::env::var("DUMP_PARAM").is_ok() {
-                        // MAVLink v2 header is 10 bytes (magic+len+incompat+compat+seq+sys+comp+msgid3)
-                        let plen = buf[1] as usize;
-                        let framelen = 10 + plen + 2;
-                        let hex: String = buf.iter().take(framelen).map(|b| format!("{:02x}", b)).collect();
-                        println!("PARAM_VALUE raw frame (plen={}): {}", plen, hex);
-                    }
-                    match mavlink::read_v2_msg::<MavMessage, _>(&mut cur) {
-                        Ok((_h, _m)) => {
-                            let consumed = cur.position() as usize;
+                    let parsed = mavlink_core::common::read_v2_msg(&buf);
+                    match parsed {
+                        Some((_h, _m, consumed)) => {
                             *successes.entry(msg_id).or_insert(0) += 1;
                             total += 1;
                             buf.drain(..consumed);
                         }
-                        Err(_e) => {
+                        None => {
                             *failures.entry(msg_id).or_insert(0) += 1;
                             total += 1;
                             buf.drain(..1);

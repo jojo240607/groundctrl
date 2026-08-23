@@ -15,10 +15,10 @@ use std::time::{Duration, Instant};
 
 use groundctrl_core::link::{serial::{SerialConfig, SerialLink}, Link};
 use groundctrl_core::mlink::{self, MavlinkParser};
-use mavlink::common::{
+use mavlink_core::common::{
     MavMessage, MavParamType, COMMAND_LONG_DATA, PARAM_REQUEST_LIST_DATA, PARAM_SET_DATA,
 };
-use mavlink::MavHeader;
+use mavlink_core::common::MavHeader;
 use tracing::info;
 
 struct Args {
@@ -77,7 +77,7 @@ fn build_command(cmd: &str) -> Option<MavMessage> {
     let mut parts = cmd.split('=');
     let name = parts.next()?;
     let extra = parts.next();
-    use mavlink::common::MavCmd;
+    use mavlink_core::common::MavCmd;
     // 标准 MAVLink DO_SET_MODE：param1 = base_mode(含 CUSTOM_MODE_ENABLED 位 0x80)，param2 = custom_mode。
     // 飞控 uplink 读 param2 作为 ArduCopter custom_mode（STABILIZE=0/ALT_HOLD=2/LOITER=5/RTL=6/LAND=9）。
     let mut param1 = 0.0f32;

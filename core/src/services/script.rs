@@ -29,7 +29,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use ::mavlink::common as mav;
+use mavlink_core::common as mav;
 
 use crate::error::{GcError, Result};
 use crate::services::TelemetryHub;

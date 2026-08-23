@@ -73,7 +73,7 @@ impl LogManager {
     }
 
     /// 记录一条已编码好的帧
-    pub fn record_msg(&mut self, ts_ms: u64, header: &::mavlink::MavHeader, msg: &mlink::MavMessage) {
+    pub fn record_msg(&mut self, ts_ms: u64, header: &mlink::MavHeader, msg: &mlink::MavMessage) {
         if let Ok(b) = mlink::encode_v2(header, msg) {
             self.record(ts_ms, &b);
         }
@@ -91,13 +91,10 @@ impl LogManager {
     /// 回放：逐帧解码并调用 cb（按时间戳顺序）
     pub fn replay<F>(&self, mut cb: F) -> crate::error::Result<()>
     where
-        F: FnMut(u64, ::mavlink::MavHeader, mlink::MavMessage),
+        F: FnMut(u64, mlink::MavHeader, mlink::MavMessage),
     {
         for f in &self.frames {
-            let mut cur = std::io::Cursor::new(&f.bytes);
-            if let Ok((header, msg)) =
-                ::mavlink::read_v2_msg::<mlink::MavMessage, _>(&mut cur)
-            {
+            if let Some((header, msg, _)) = mlink::read_v2_msg(&f.bytes) {
                 cb(f.ts_ms, header, msg);
             }
         }
@@ -184,8 +181,7 @@ impl LogManager {
 
         for f in &self.frames {
             let t = (f.ts_ms.saturating_sub(t0)) as f64 / 1000.0;
-            let mut cur = std::io::Cursor::new(&f.bytes);
-            let Ok((_h, msg)) = ::mavlink::read_v2_msg::<mlink::MavMessage, _>(&mut cur) else {
+            let Some((_h, msg, _)) = mlink::read_v2_msg(&f.bytes) else {
                 continue;
             };
             match msg {

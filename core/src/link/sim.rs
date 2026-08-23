@@ -11,7 +11,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use async_trait::async_trait;
 use tokio::sync::{mpsc, Mutex};
 
-use ::mavlink::common as mav;
+use mavlink_core::common as mav;
 use crate::error::{GcError, Result};
 use crate::link::{Link, LinkQuality, LinkStats};
 use crate::mlink;
@@ -57,7 +57,7 @@ pub struct SimLink {
     tx: mpsc::UnboundedSender<Vec<u8>>,
     rx: tokio::sync::Mutex<mpsc::UnboundedReceiver<Vec<u8>>>,
     stats: LinkStats,
-    header: ::mavlink::MavHeader,
+    header: mav::MavHeader,
     /// 模拟飞控侧围栏存储（与周期任务共享）
     state: Arc<tokio::sync::Mutex<SimState>>,
 }
@@ -70,7 +70,7 @@ impl SimLink {
         let st = state.clone();
 
         // 模拟飞控的 system/component id
-        let header = ::mavlink::MavHeader {
+        let header = mav::MavHeader {
             system_id: 1,
             component_id: 1,
             sequence: 0,
@@ -171,6 +171,12 @@ impl SimLink {
                     cog: (t * 10.0) as u16 % 36000,
                     fix_type: mav::GpsFixType::GPS_FIX_TYPE_3D_FIX,
                     satellites_visible: 12 + ((t * 7.0) as u8 % 4),
+                    alt_ellipsoid: 0,
+                    h_acc: 1000,
+                    v_acc: 2000,
+                    vel_acc: 500,
+                    hdg_acc: 100,
+                    yaw: 0,
                 });
                 let _ = producer.send(enc(gps_raw));
 
@@ -246,9 +252,8 @@ impl SimLink {
     /// 响应 GCS 下行：收到 PARAM_REQUEST_LIST 后回放示例参数；
     /// 收到 COMMAND_LONG 后回 COMMAND_ACK（模拟飞控执行）。
     async fn on_downlink(&self, bytes: &[u8]) {
-        let mut cur = std::io::Cursor::new(bytes);
-        let parsed = ::mavlink::read_v2_msg::<mlink::MavMessage, _>(&mut cur);
-        if let Ok((_h, msg)) = parsed {
+        let parsed = mlink::read_v2_msg(bytes);
+        if let Some((_h, msg, _)) = parsed {
             if let mav::MavMessage::PARAM_REQUEST_LIST(_) = &msg {
                 // 回放一组示例参数
                 let params: &[(&str, f32)] = &[
@@ -277,6 +282,10 @@ impl SimLink {
                 let ack = mav::COMMAND_ACK_DATA {
                     command: d.command,
                     result: mav::MavResult::MAV_RESULT_ACCEPTED,
+                    progress: 0,
+                    result_param2: 0,
+                    target_system: d.target_system,
+                    target_component: d.target_component,
                 };
                 if let Ok(b) = mlink::encode_v2(&self.header, &mlink::MavMessage::COMMAND_ACK(ack))
                 {

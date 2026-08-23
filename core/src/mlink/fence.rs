@@ -54,7 +54,7 @@ pub fn crc16_mcrf4cc(data: &[u8]) -> u16 {
 
 /// 组装一条 MAVLink v2 帧（不校验消息是否在 common dialect 中）
 fn build_v2_frame(
-    header: &::mavlink::MavHeader,
+    header: &crate::mlink::MavHeader,
     msg_id: u32,
     payload: &[u8],
     crc_extra: u8,
@@ -80,7 +80,7 @@ fn build_v2_frame(
 
 /// 编码一条 FENCE_POINT（围栏点上传，坐标单位 1e7 度）
 pub fn encode_fence_point(
-    header: &::mavlink::MavHeader,
+    header: &crate::mlink::MavHeader,
     target_system: u8,
     target_component: u8,
     idx: u8,
@@ -108,7 +108,7 @@ pub fn encode_fence_point(
 
 /// 编码一条 FENCE_FETCH_POINT（请求指定索引的围栏点）
 pub fn encode_fence_fetch_point(
-    header: &::mavlink::MavHeader,
+    header: &crate::mlink::MavHeader,
     target_system: u8,
     target_component: u8,
     idx: u8,
@@ -183,7 +183,7 @@ pub fn decode_fence_fetch_point(bytes: &[u8]) -> Option<FenceFetchRaw> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ::mavlink::common as mav;
+    use mavlink_core::common as mav;
     use crate::mlink;
 
     /// 交叉验证：手写 CRC 与 mavlink crate 对 FENCE_STATUS(162) 的计算一致
@@ -204,7 +204,6 @@ mod tests {
         let wire_crc = u16::from_le_bytes([bytes[total - 2], bytes[total - 1]]);
 
         // 用手写算法重算（头部 + payload + extra_crc）
-        use ::mavlink::Message;
         let mut input = Vec::new();
         input.extend_from_slice(&bytes[1..10 + payload_len]);
         input.push(mlink::MavMessage::extra_crc(162));
@@ -214,7 +213,7 @@ mod tests {
     /// FENCE_POINT / FENCE_FETCH_POINT 编码 -> 解析往返一致
     #[test]
     fn fence_point_roundtrip() {
-        let header = ::mavlink::MavHeader {
+        let header = crate::mlink::MavHeader {
             system_id: 255,
             component_id: 190,
             sequence: 7,

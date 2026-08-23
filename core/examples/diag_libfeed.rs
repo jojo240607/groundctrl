@@ -33,7 +33,7 @@ async fn main() {
     // 也发 COMMAND_LONG REQUEST_AUTOPILOT_CAPABILITIES 验证上行链路（标准顺序编码）
     let out2 = mlink::encode_std_command_long(
         1, 1, 0,
-        mavlink::common::MavCmd::MAV_CMD_REQUEST_AUTOPILOT_CAPABILITIES as u16,
+        mavlink_core::common::MavCmd::MAV_CMD_REQUEST_AUTOPILOT_CAPABILITIES as u16,
         [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         0,
     );
@@ -43,7 +43,7 @@ async fn main() {
     // 也发 ARM 命令(400) 验证解锁链路
     let out3 = mlink::encode_std_command_long(
         1, 1, 0,
-        mavlink::common::MavCmd::MAV_CMD_COMPONENT_ARM_DISARM as u16,
+        mavlink_core::common::MavCmd::MAV_CMD_COMPONENT_ARM_DISARM as u16,
         [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         0,
     );
@@ -85,16 +85,16 @@ async fn main() {
         }
         let msgs = parser.feed(&chunk).unwrap();
         for (_h, m) in msgs {
-            if let mavlink::common::MavMessage::PARAM_VALUE(d) = m {
+            if let mavlink_core::common::MavMessage::PARAM_VALUE(d) = m {
                 let id = String::from_utf8_lossy(&d.param_id)
                     .trim_end_matches('\0').to_string();
                 println!("  PARAM_VALUE: id={} value={} count={} index={}",
                     id, d.param_value, d.param_count, d.param_index);
                 pv_count += 1;
-            } else if let mavlink::common::MavMessage::AUTOPILOT_VERSION(_) = m {
+            } else if let mavlink_core::common::MavMessage::AUTOPILOT_VERSION(_) = m {
                 println!("  AUTOPILOT_VERSION received");
                 cap_count += 1;
-            } else if let mavlink::common::MavMessage::COMMAND_ACK(_) = m {
+            } else if let mavlink_core::common::MavMessage::COMMAND_ACK(_) = m {
                 println!("  COMMAND_ACK received");
                 ack_count += 1;
             }

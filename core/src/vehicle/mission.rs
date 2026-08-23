@@ -9,7 +9,7 @@
 //!
 //! `MissionPlanner` 维护本地的航点列表，并负责把整份航点编码成 MISSION_ITEM 序列。
 
-use ::mavlink::common as mav;
+use mavlink_core::common as mav;
 
 /// 单个航点（简化：仅导航航点需要的字段）
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -73,6 +73,7 @@ impl Waypoint {
             x: (self.lat * 1e7) as i32,
             y: (self.lon * 1e7) as i32,
             z: self.alt,
+            mission_type: 0,
         })
     }
 
@@ -183,6 +184,7 @@ impl MissionPlanner {
         mav::MavMessage::MISSION_REQUEST_LIST(mav::MISSION_REQUEST_LIST_DATA {
             target_system: target_sys,
             target_component: target_comp,
+            mission_type: 0,
         })
     }
 
@@ -191,6 +193,7 @@ impl MissionPlanner {
         mav::MavMessage::MISSION_REQUEST(mav::MISSION_REQUEST_DATA {
             target_system: target_sys,
             target_component: target_comp,
+            mission_type: 0,
             seq,
         })
     }
@@ -210,6 +213,7 @@ impl MissionPlanner {
         mav::MavMessage::MISSION_CLEAR_ALL(mav::MISSION_CLEAR_ALL_DATA {
             target_system: target_sys,
             target_component: target_comp,
+            mission_type: 0,
         })
     }
 
@@ -219,6 +223,7 @@ impl MissionPlanner {
             target_system: target_sys,
             target_component: target_comp,
             count: self.items.len() as u16,
+            mission_type: 0,
         })
     }
 

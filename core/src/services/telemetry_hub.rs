@@ -4,8 +4,7 @@
 
 use std::sync::Arc;
 
-use ::mavlink::common as mav;
-use ::mavlink::MavHeader;
+use mavlink_core::common::{self as mav, MavHeader};
 use num_traits::FromPrimitive;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
@@ -134,7 +133,7 @@ impl TelemetryHub {
                                         header,
                                         msg: msg.clone(),
                                     });
-                                    if let ::mavlink::common::MavMessage::PARAM_VALUE(d) = &msg {
+                                    if let mav::MavMessage::PARAM_VALUE(d) = &msg {
                                         let sys = header.system_id;
                                         let just_done = {
                                             let mut pm = params.lock().await;
@@ -183,7 +182,7 @@ impl TelemetryHub {
                         if let Some(fp) = crate::mlink::fence::decode_fence_point(&bytes) {
                             bus.publish(BusEvent::FencePoint {
                                 link: name.clone(),
-                                header: ::mavlink::MavHeader {
+                                header: MavHeader {
                                     system_id: bytes.get(5).copied().unwrap_or(0),
                                     component_id: bytes.get(6).copied().unwrap_or(0),
                                     sequence: bytes.get(4).copied().unwrap_or(0),
@@ -198,7 +197,7 @@ impl TelemetryHub {
                         if let Some((_tsys, _tcomp, payload)) = crate::mlink::ftp::decode_ftp(&bytes) {
                             bus.publish(BusEvent::Ftp {
                                 link: name.clone(),
-                                header: ::mavlink::MavHeader {
+                                header: MavHeader {
                                     system_id: bytes.get(5).copied().unwrap_or(0),
                                     component_id: bytes.get(6).copied().unwrap_or(0),
                                     sequence: bytes.get(4).copied().unwrap_or(0),
@@ -378,6 +377,16 @@ impl TelemetryHub {
                 chan6_raw: chans[5],
                 chan7_raw: chans[6],
                 chan8_raw: chans[7],
+                chan9_raw: 0,
+                chan10_raw: 0,
+                chan11_raw: 0,
+                chan12_raw: 0,
+                chan13_raw: 0,
+                chan14_raw: 0,
+                chan15_raw: 0,
+                chan16_raw: 0,
+                chan17_raw: 0,
+                chan18_raw: 0,
             });
             let header = mlink::default_header();
             self.send_msg(&link, &header, &msg).await?;
@@ -483,7 +492,7 @@ impl TelemetryHub {
                 req_message_rate: rate_hz,
                 target_system: sys,
                 target_component: comp,
-                req_stream_id: stream as u8,
+                req_stream_id: stream,
                 start_stop: if rate_hz > 0 { 1 } else { 0 },
             });
             let header = mlink::default_header();

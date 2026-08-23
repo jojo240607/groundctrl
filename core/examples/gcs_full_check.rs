@@ -14,7 +14,7 @@ use groundctrl_core::link;
 use groundctrl_core::services::alarms::MonitorConfig;
 use groundctrl_core::services::telemetry_hub::TelemetryHub;
 use groundctrl_core::vehicle::mission::{MissionPlanner, Waypoint};
-use mavlink::common::MavCmd;
+use mavlink_core::common::MavCmd;
 
 fn port() -> String {
     std::env::var("PORT").unwrap_or_else(|_| "COM12".into())

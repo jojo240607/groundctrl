@@ -13,7 +13,7 @@ pub enum BusEvent {
     /// 收到一帧 MAVLink 消息（含来源链路名）
     Mavlink {
         link: String,
-        header: ::mavlink::MavHeader,
+        header: crate::mlink::MavHeader,
         msg: mlink::MavMessage,
     },
     /// 链路状态变化
@@ -33,7 +33,7 @@ pub enum BusEvent {
     /// 收到一帧 FENCE_POINT（厂商扩展消息，不进 Mavlink 事件；坐标单位 1e7 度）
     FencePoint {
         link: String,
-        header: ::mavlink::MavHeader,
+        header: crate::mlink::MavHeader,
         idx: u8,
         count: u8,
         lat: i32,
@@ -42,7 +42,7 @@ pub enum BusEvent {
     /// 收到一帧 MAVLink FTP（FILE_TRANSFER_PROTOCOL，手写编解码，不进 Mavlink 事件）
     Ftp {
         link: String,
-        header: ::mavlink::MavHeader,
+        header: crate::mlink::MavHeader,
         payload: crate::mlink::ftp::FtpPayload,
     },
 }

@@ -192,7 +192,7 @@ pub struct VehicleModel {
 
 impl VehicleModel {
     /// 应用一条已解析的 MAVLink 消息，更新自身状态
-    pub fn apply(&mut self, header: &::mavlink::MavHeader, msg: &mlink::MavMessage) {
+    pub fn apply(&mut self, header: &mlink::MavHeader, msg: &mlink::MavMessage) {
         self.sys_id = header.system_id;
         self.comp_id = header.component_id;
         self.online = true;

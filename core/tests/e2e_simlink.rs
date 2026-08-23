@@ -12,12 +12,12 @@ use groundctrl_core::services::TelemetryHub;
 #[tokio::test]
 async fn encode_parse_roundtrip() {
     // 先单独验证编码 + 解析这一环（SimLink 内部用的同一组 API）
-    let msg = MavMessage::HEARTBEAT(::mavlink::common::HEARTBEAT_DATA {
+    let msg = MavMessage::HEARTBEAT(mavlink_core::common::HEARTBEAT_DATA {
         custom_mode: 0,
-        mavtype: ::mavlink::common::MavType::MAV_TYPE_QUADROTOR,
-        autopilot: ::mavlink::common::MavAutopilot::MAV_AUTOPILOT_ARDUPILOTMEGA,
-        base_mode: ::mavlink::common::MavModeFlag::MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
-        system_status: ::mavlink::common::MavState::MAV_STATE_ACTIVE,
+        mavtype: mavlink_core::common::MavType::MAV_TYPE_QUADROTOR,
+        autopilot: mavlink_core::common::MavAutopilot::MAV_AUTOPILOT_ARDUPILOTMEGA,
+        base_mode: mavlink_core::common::MavModeFlag::MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
+        system_status: mavlink_core::common::MavState::MAV_STATE_ACTIVE,
         mavlink_version: 3,
     });
     let bytes = mlink::encode_v2(&mlink::default_header(), &msg).expect("encode must succeed");
@@ -292,13 +292,13 @@ async fn fence_rejects_less_than_three_points() {
 #[test]
 fn log_analyze_extracts_series() {
     use groundctrl_core::services::log::LogManager;
-    use ::mavlink::common::{
+    use mavlink_core::common::{
         ATTITUDE_DATA, GLOBAL_POSITION_INT_DATA, GPS_RAW_INT_DATA, SYS_STATUS_DATA, VFR_HUD_DATA,
     };
 
     let mut lm = LogManager::new();
     lm.set_recording(true);
-    let hdr = ::mavlink::MavHeader {
+    let hdr = mlink::MavHeader {
         system_id: 1,
         component_id: 1,
         sequence: 0,
@@ -335,9 +335,9 @@ fn log_analyze_extracts_series() {
         3000,
         &hdr,
         &MavMessage::SYS_STATUS(SYS_STATUS_DATA {
-            onboard_control_sensors_present: ::mavlink::common::MavSysStatusSensor::empty(),
-            onboard_control_sensors_enabled: ::mavlink::common::MavSysStatusSensor::empty(),
-            onboard_control_sensors_health: ::mavlink::common::MavSysStatusSensor::empty(),
+            onboard_control_sensors_present: mavlink_core::common::MavSysStatusSensor::empty(),
+            onboard_control_sensors_enabled: mavlink_core::common::MavSysStatusSensor::empty(),
+            onboard_control_sensors_health: mavlink_core::common::MavSysStatusSensor::empty(),
             load: 0,
             voltage_battery: 12400,
             current_battery: 0,
@@ -368,7 +368,7 @@ fn log_analyze_extracts_series() {
         &hdr,
         &MavMessage::GPS_RAW_INT(GPS_RAW_INT_DATA {
             time_usec: 5000000,
-            fix_type: ::mavlink::common::GpsFixType::GPS_FIX_TYPE_3D_FIX,
+            fix_type: mavlink_core::common::GpsFixType::GPS_FIX_TYPE_3D_FIX,
             lat: 0,
             lon: 0,
             alt: 0,
@@ -377,6 +377,12 @@ fn log_analyze_extracts_series() {
             vel: 1000,
             cog: 0,
             satellites_visible: 11,
+            alt_ellipsoid: 0,
+            h_acc: 1000,
+            v_acc: 2000,
+            vel_acc: 500,
+            hdg_acc: 100,
+            yaw: 0,
         }),
     );
     lm.set_recording(false);

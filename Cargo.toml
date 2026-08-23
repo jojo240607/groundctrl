@@ -21,4 +21,6 @@ tracing = "0.1"
 tracing-subscriber = "0.3"
 thiserror = "1"
 num-traits = "0.2"
-mavlink = { version = "0.11", default-features = false, features = ["std", "common", "format-generated-code"] }
+# 项目共用 MAVLink 模块（固件 flyctrl-core / 仿真器 fly-simulater / 本地地面站共用，
+# 统一消息编解码，避免各端各自维护一份导致字段顺序 / CRC 不一致）
+mavlink-core = { path = "../mavlink-core" }

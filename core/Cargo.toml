@@ -14,4 +14,4 @@ thiserror = { workspace = true }
 async-trait = "0.1"
 tokio-serial = "5"
 num-traits = { workspace = true }
-mavlink = { workspace = true }
+mavlink-core = { workspace = true, features = ["common"] }

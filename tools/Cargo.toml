@@ -8,6 +8,6 @@ rust-version.workspace = true
 [dependencies]
 groundctrl-core = { path = "../core" }
 tokio = { workspace = true }
-mavlink = { workspace = true }
+mavlink-core = { workspace = true, features = ["common"] }
 tracing = { workspace = true }
 tracing-subscriber = "0.3"
